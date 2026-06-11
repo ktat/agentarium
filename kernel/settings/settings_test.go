@@ -119,13 +119,34 @@ func TestSchema_EnumeratesProvidersOnly(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	// Exactly 1 plugin (alpha); beta has no SettingsProvider, settings itself is excluded
-	if len(out.Plugins) != 1 {
-		t.Fatalf("expected 1 plugin, got %d", len(out.Plugins))
+	// kernel グループ + alpha の 2 件。beta は SettingsProvider 無し、settings 自身は除外。
+	var pl *struct {
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Fields []struct {
+			Key    string `json:"key"`
+			Label  string `json:"label"`
+			Secret bool   `json:"secret"`
+			Value  string `json:"value"`
+			Set    bool   `json:"set"`
+		} `json:"fields"`
 	}
-	pl := out.Plugins[0]
-	if pl.ID != "alpha" {
-		t.Errorf("expected id=alpha, got %s", pl.ID)
+	hasKernel := false
+	for i := range out.Plugins {
+		switch out.Plugins[i].ID {
+		case "alpha":
+			pl = &out.Plugins[i]
+		case "kernel":
+			hasKernel = true
+		case "beta", "settings":
+			t.Errorf("unexpected group in schema: %s", out.Plugins[i].ID)
+		}
+	}
+	if !hasKernel {
+		t.Error("schema should include the kernel group")
+	}
+	if pl == nil {
+		t.Fatal("alpha group not found in schema")
 	}
 
 	fields := make(map[string]struct {
@@ -209,6 +230,42 @@ func TestSave_UnknownPlugin400(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestSave_KernelRendererValid(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	h := findRoute(t, sp, "POST", "/save")
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("POST", "/save", strings.NewReader(`{"id":"kernel","values":{"terminal_renderer":"wrap"}}`)))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if v, ok := store.Get(settings.KeyTerminalRenderer); !ok || v != "wrap" {
+		t.Errorf("renderer: want wrap, got %q ok=%v", v, ok)
+	}
+	if got := settings.TerminalRenderer(store); got != "wrap" {
+		t.Errorf("TerminalRenderer: want wrap, got %q", got)
+	}
+}
+
+func TestSave_KernelRendererInvalid(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	h := findRoute(t, sp, "POST", "/save")
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("POST", "/save", strings.NewReader(`{"id":"kernel","values":{"terminal_renderer":"bogus"}}`)))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if got := settings.TerminalRenderer(store); got != "" {
+		t.Errorf("invalid renderer must not be stored; TerminalRenderer=%q", got)
+	}
+}
+
+func TestTerminalRenderer_UnsetIsEmpty(t *testing.T) {
+	_, store, _ := newTestEnv(t)
+	if got := settings.TerminalRenderer(store); got != "" {
+		t.Errorf("unset renderer should be empty, got %q", got)
 	}
 }
 

@@ -14,7 +14,9 @@ import (
 	"github.com/ktat/agentarium"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
+	"github.com/ktat/agentarium/kernel/settings"
 	"github.com/ktat/agentarium/kernel/terminal"
+	"github.com/ktat/agentarium/kernel/terminal/wrap"
 	"github.com/ktat/agentarium/kernel/terminal/xterm"
 	"github.com/ktat/agentarium/plugins/hello"
 	"github.com/ktat/agentarium/plugins/sessions"
@@ -130,16 +132,24 @@ func runServer() error {
 
 	agents := terminal.NewAgentRegistry("claude")
 	agents.Register(claudeAgent{})
+	// xterm / wrap 両 backend をコンパイルに含めて登録し、実行時に active を選ぶ。
 	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd)}
+	wrapBackend := &wrap.Backend{Registry: wrap.NewRegistry(wd, agents)}
+	// active backend は Settings（kernel.terminal_renderer）→ env → 既定 xterm の順で決定。
+	active := settings.TerminalRenderer(sec)
+	if active == "" {
+		active = terminal.EnvActiveBackend()
+	}
 	svc, err := terminal.NewService(terminal.ServiceConfig{
 		Agents:   agents,
-		Backends: []terminal.Backend{xtermBackend},
-		Active:   terminal.EnvActiveBackend(),
+		Backends: []terminal.Backend{xtermBackend, wrapBackend},
+		Active:   active,
 	})
 	if err != nil {
 		return err
 	}
 	app.WithTerminal(svc)
+	log.Printf("agentarium: active terminal renderer = %q", active)
 
 	addr := os.Getenv("AGENTARIUM_ADDR")
 	log.Printf("agentarium demo starting (addr=%q, empty=default)", addr)

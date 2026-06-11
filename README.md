@@ -41,7 +41,7 @@ go run ./cmd/agentarium
 | 変数 | 既定 | 説明 |
 |---|---|---|
 | `AGENTARIUM_ADDR` | `127.0.0.1:8780` | listen アドレス |
-| `AGENTARIUM_TERMINAL_RENDERER` | `xterm` | ターミナル backend（`xterm` / `wrap`） |
+| `AGENTARIUM_TERMINAL_RENDERER` | `xterm` | ターミナル backend（`xterm` / `wrap`）。Settings タブの「Kernel」からも設定でき、保存値が env より優先される（変更は再起動で反映） |
 | `AGENTARIUM_ALLOW_PUBLIC` | （未設定） | `1` で非ループバックアドレスへのバインドを許可（既定はループバックのみ） |
 
 ## プラグイン
