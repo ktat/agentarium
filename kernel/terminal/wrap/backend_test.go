@@ -86,3 +86,12 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 		t.Fatalf("index.js should be embedded: %v", err)
 	}
 }
+
+func TestBackendAssets_HasRendererFiles(t *testing.T) {
+	assets := newBackend().Assets()
+	for _, name := range []string{"index.js", "wrap.css"} {
+		if _, err := fs.Stat(assets, name); err != nil {
+			t.Errorf("assets missing %s: %v", name, err)
+		}
+	}
+}
