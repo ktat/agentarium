@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Agentarium</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <!-- xterm.js は xterm backend の renderer が global Terminal/FitAddon を期待するので先読み -->
+  <script src="/terminal/assets/xterm/xterm.min.js"></script>
+  <script src="/terminal/assets/xterm/addon-fit.min.js"></script>
+</head>
+<body>
+  <div class="header-bar"><span class="title">Agentarium</span><span class="meta"></span></div>
+  <div class="layout">
+    <div class="left-pane">
+      <div class="left-tab-bar" id="left-tab-bar"></div>
+      <div class="panel" id="panel"><p class="empty">タブを選択してください</p></div>
+    </div>
+    <div class="layout-resizer" id="layoutResizer" title="ドラッグで左右幅を調整"></div>
+    <div class="right-pane no-viewer">
+      <div class="right-top" id="rightTop">
+        <div class="viewer-tab-bar" id="viewer-tab-bar"></div>
+        <div class="panel viewer-panel" id="viewer-panel"></div>
+      </div>
+      <div class="right-resizer" id="rightResizer" title="ドラッグで上下高さを調整"></div>
+      <div class="right-bottom" id="rightBottom">
+        <div class="term-tab-bar" id="right-tab-bar"></div>
+        <div class="panel" id="right-panel"><p class="empty">Agent タブはまだ開かれていません</p></div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/assets/app.js"></script>
+</body>
+</html>

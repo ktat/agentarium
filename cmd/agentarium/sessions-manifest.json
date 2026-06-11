@@ -1,0 +1,23 @@
+{
+  "id": "sessions-manifest",
+  "title": "Sessions (manifest)",
+  "pane": "left",
+  "order": 1,
+  "dataURL": "/plugins/sessions/list",
+  "render": "list",
+  "list": {
+    "columns": [
+      { "label": "UUID", "value": "{{.uuid}}" },
+      { "label": "更新時刻", "value": "{{.mod_time}}" },
+      { "label": "要約", "value": "{{.summary}}" }
+    ]
+  },
+  "rowAction": {
+    "label": "Resume",
+    "type": "openAgent",
+    "agent": "claude",
+    "resume": "{{.uuid}}",
+    "key": "session-{{.uuid}}",
+    "tabLabel": "{{.uuid}}"
+  }
+}

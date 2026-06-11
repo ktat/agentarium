@@ -1,0 +1,19 @@
+# Go ビルド生成物
+/agentarium
+/bin/
+*.exe
+*.test
+*.out
+
+# 実行ログ（go run のリダイレクト等）
+*.log
+
+# 環境固有値（spec / CLAUDE.md: 環境変数・Settings 経由で管理）
+.env
+.env.local
+
+# 社内情報を含む開発ドキュメント（公開しない）
+internal-docs/
+
+# 非公開（メンテナ作業用・公開しない）
+/CLAUDE.md
