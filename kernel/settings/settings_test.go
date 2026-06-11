@@ -233,6 +233,39 @@ func TestSave_UnknownPlugin400(t *testing.T) {
 	}
 }
 
+func TestSchema_KernelRendererHasOptions(t *testing.T) {
+	_, _, sp := newTestEnv(t)
+	h := findRoute(t, sp, "GET", "/schema")
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("GET", "/schema", nil))
+	var out struct {
+		Plugins []struct {
+			ID     string `json:"id"`
+			Fields []struct {
+				Key     string   `json:"key"`
+				Options []string `json:"options"`
+			} `json:"fields"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, g := range out.Plugins {
+		if g.ID != "kernel" {
+			continue
+		}
+		for _, f := range g.Fields {
+			if f.Key == "terminal_renderer" {
+				if len(f.Options) != 2 || f.Options[0] != "xterm" || f.Options[1] != "wrap" {
+					t.Fatalf("renderer options = %v, want [xterm wrap]", f.Options)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("kernel.terminal_renderer field with options not found")
+}
+
 func TestSave_KernelRendererValid(t *testing.T) {
 	_, store, sp := newTestEnv(t)
 	h := findRoute(t, sp, "POST", "/save")

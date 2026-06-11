@@ -60,22 +60,46 @@ function showForm(root, pl) {
 
   const form = document.createElement('div');
   form.className = 'card';
-  const inputs = {};
+  const getValue = {}; // key → () => string（フィールド型ごとに値の取り出し方が違う）
   for (const f of (pl.fields || [])) {
     const row = document.createElement('div');
     const label = document.createElement('label');
     label.textContent = f.label || f.key;
     label.style.display = 'block';
     row.appendChild(label);
-    const input = document.createElement('input');
-    input.type = f.secret ? 'password' : 'text';
-    if (f.secret) {
-      input.placeholder = f.set ? '（設定済み・変更時のみ入力）' : '';
+
+    if (Array.isArray(f.options) && f.options.length > 0) {
+      // 選択肢ありはラジオで描画
+      const name = 'opt-' + f.key;
+      const radios = [];
+      for (const opt of f.options) {
+        const rl = document.createElement('label');
+        rl.style.marginRight = '12px';
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = name;
+        radio.value = opt;
+        if (f.value === opt) radio.checked = true;
+        rl.appendChild(radio);
+        rl.appendChild(document.createTextNode(' ' + opt));
+        row.appendChild(rl);
+        radios.push(radio);
+      }
+      getValue[f.key] = () => {
+        const sel = radios.find((r) => r.checked);
+        return sel ? sel.value : '';
+      };
     } else {
-      input.value = f.value || '';
+      const input = document.createElement('input');
+      input.type = f.secret ? 'password' : 'text';
+      if (f.secret) {
+        input.placeholder = f.set ? '（設定済み・変更時のみ入力）' : '';
+      } else {
+        input.value = f.value || '';
+      }
+      getValue[f.key] = () => input.value;
+      row.appendChild(input);
     }
-    inputs[f.key] = input;
-    row.appendChild(input);
     form.appendChild(row);
   }
   const save = document.createElement('button');
@@ -83,7 +107,7 @@ function showForm(root, pl) {
   save.textContent = 'Save';
   save.addEventListener('click', async () => {
     const values = {};
-    for (const k of Object.keys(inputs)) values[k] = inputs[k].value;
+    for (const k of Object.keys(getValue)) values[k] = getValue[k]();
     try {
       const res = await fetch('/plugins/settings/save', {
         method: 'POST',

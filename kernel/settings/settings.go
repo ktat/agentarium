@@ -27,7 +27,10 @@ const (
 	KeyTerminalRenderer = kernelGroupID + "." + rendererField
 )
 
-// allowedRenderers は terminal_renderer に許す値。
+// rendererOptions は terminal_renderer の選択肢（表示順）。UI はこれをラジオで出す。
+var rendererOptions = []string{"xterm", "wrap"}
+
+// allowedRenderers は terminal_renderer に許す値（検証用）。
 var allowedRenderers = map[string]bool{"xterm": true, "wrap": true}
 
 // TerminalRenderer は store に保存された renderer 設定（"xterm"/"wrap"）を返す。
@@ -72,11 +75,12 @@ func (p *settingsPlugin) Assets() fs.FS {
 }
 
 type fieldDTO struct {
-	Key    string `json:"key"`
-	Label  string `json:"label"`
-	Secret bool   `json:"secret"`
-	Value  string `json:"value,omitempty"`
-	Set    bool   `json:"set,omitempty"`
+	Key     string   `json:"key"`
+	Label   string   `json:"label"`
+	Secret  bool     `json:"secret"`
+	Value   string   `json:"value,omitempty"`
+	Set     bool     `json:"set,omitempty"`
+	Options []string `json:"options,omitempty"` // 非空なら UI はラジオで選択させる
 }
 
 type pluginDTO struct {
@@ -89,7 +93,7 @@ type pluginDTO struct {
 func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 	out := make([]pluginDTO, 0)
 	// カーネル自身の設定グループを先頭に出す（プラグインではない）。
-	rendererDTO := fieldDTO{Key: rendererField, Label: "Terminal renderer（xterm / wrap・変更は再起動で反映）"}
+	rendererDTO := fieldDTO{Key: rendererField, Label: "Terminal renderer（変更は再起動で反映）", Options: rendererOptions}
 	if v, ok := p.store.Get(KeyTerminalRenderer); ok {
 		rendererDTO.Value = v
 	}
