@@ -57,17 +57,16 @@ export async function render(root, ctx) {
   };
 
   function measureCell() {
+    // フォントは CSS（.twrap-grid → --twrap-font）を継承して実測する。
+    // ハードコードしないことで CSS とセル幅が必ず一致し、カーソル位置がずれない。
     const tmp = document.createElement('span');
-    tmp.style.fontFamily = '"M PLUS 1 Code", "BIZ UDGothic", "MS Gothic", "Source Han Code JP", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", "Yu Gothic", "Meiryo", "Noto Sans Mono CJK JP", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", "Hack", "Consolas", monospace';
-    tmp.style.fontSize = '13px';
-    tmp.style.lineHeight = '1.0';
     tmp.style.position = 'absolute';
     tmp.style.visibility = 'hidden';
     tmp.style.whiteSpace = 'pre';
     tmp.textContent = 'M'.repeat(100);
-    document.body.appendChild(tmp);
+    entry.gridEl.appendChild(tmp);
     const w = tmp.offsetWidth / 100;
-    document.body.removeChild(tmp);
+    entry.gridEl.removeChild(tmp);
     const heightProbe = document.createElement('span');
     heightProbe.className = 'twrap-line';
     heightProbe.style.visibility = 'hidden';

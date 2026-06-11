@@ -1,3 +1,9 @@
+:root {
+  /* wrap ターミナルのフォント。列を揃えるため等幅のみ（プロポーショナルは混ぜない）。
+     CJK は等幅 CJK にフォールバックさせ、最後は環境既定の monospace。
+     ここを変えれば viewport / ime / measureCell（CSS 継承で実測）すべてに反映される。 */
+  --twrap-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono CJK JP", "Noto Sans Mono", monospace;
+}
 .twrap-viewport {
   position: absolute;
   inset: 0;
@@ -9,7 +15,7 @@
   background: #1e1e1e;
   color: #d4d4d4;
   padding: 4px 8px;
-  font-family: "M PLUS 1 Code", "BIZ UDGothic", "MS Gothic", "Source Han Code JP", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", "Yu Gothic", "Meiryo", "Noto Sans Mono CJK JP", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", "Hack", "Consolas", monospace;
+  font-family: var(--twrap-font);
   font-size: 13px;
   line-height: 1.0;
   font-feature-settings: "calt" 0, "liga" 0, "dlig" 0;
@@ -61,7 +67,7 @@
   background: transparent;
   color: transparent;
   caret-color: transparent;
-  font-family: "M PLUS 1 Code", "BIZ UDGothic", "MS Gothic", "Source Han Code JP", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", "Yu Gothic", "Meiryo", "Noto Sans Mono CJK JP", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", "Hack", "Consolas", monospace;
+  font-family: var(--twrap-font);
   font-size: 13px;
   line-height: 1.0;
   white-space: pre;
