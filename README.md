@@ -158,6 +158,25 @@ agentarium.closeViewer('doc');
 **Notion / Slack 等のアプリ固有ビューアは upstream に含めない。** 消費者リポのアプリプラグインが
 `openViewer` を呼んで実装する（社内 ID・ホスト・認証に依存するため。消費モデルの節を参照）。
 
+### Pet 連携（外部バイナリ）
+
+デスクトップ Pet（マスコット）は **別バイナリ**として実装し、agentarium が公開する契約に従う。
+agentarium 本体に Pet 描画は含めず、Settings タブの「Pet」ブロックから binary パス・skin・
+自動起動を設定し、その場で起動もできる（`App.WithPet` で opt-in）。
+
+**Pet バイナリの CLI 契約**
+- `pet --list-skin` : 利用可能スキンを 1 行 1 名で stdout に出力。
+- `pet --server <host:port> [--skin <name>]` : 起動し `http://<host:port>/terminal/events` に SSE 接続。
+
+**状態 SSE 契約** `GET /terminal/events`（`text/event-stream`）。接続時に現在状態、以後は状態変化時のみ送信、15 秒ごとに `: ping` で keepalive:
+
+```
+event: state
+data: {"counts":{"idle":N,"running":N,"awaiting_user":N},"highest":"awaiting_user|running|idle"}
+```
+
+`highest` の優先度は awaiting_user > running > idle。Pet はこれを表情にマップする。この契約に従えば誰でも Pet バイナリを実装できる。
+
 ### 同梱プラグイン
 
 | プラグイン | 説明 |
