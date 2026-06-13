@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/ktat/agentarium"
+	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
 	"github.com/ktat/agentarium/kernel/settings"
@@ -149,6 +150,7 @@ func runServer() error {
 		return err
 	}
 	app.WithTerminal(svc)
+	app.WithPet(pet.New(sec, svc.EventSubscriberCount))
 	log.Printf("agentarium: active terminal renderer = %q", active)
 
 	addr := os.Getenv("AGENTARIUM_ADDR")

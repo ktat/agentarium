@@ -9,10 +9,34 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
 	"github.com/ktat/agentarium/kernel/terminal"
 )
+
+func TestWithPet_MountsRoutes(t *testing.T) {
+	dir := t.TempDir()
+	store, err := secrets.NewStore(filepath.Join(dir, "d.json"), filepath.Join(dir, "k.key"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	app := New().WithSecrets(store).WithPet(pet.New(store, func() int { return 0 }))
+	h, err := app.Handler()
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	res, err := http.Get(srv.URL + "/pet/status")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("pet/status status %d", res.StatusCode)
+	}
+}
 
 type fakePlugin struct{}
 

@@ -6,12 +6,14 @@ package agentarium
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
 	"github.com/ktat/agentarium/kernel/server"
@@ -25,6 +27,7 @@ type App struct {
 	reg      *plugin.Registry
 	terminal *terminal.Service
 	secrets  *secrets.Store
+	pet      *pet.Supervisor
 	mu       sync.Mutex
 	srv      *http.Server
 }
@@ -66,6 +69,12 @@ func (a *App) WithSecrets(store *secrets.Store) *App {
 	return a
 }
 
+// WithPet は Pet supervisor を opt-in する（/pet/* を mount。Run 時に autostart）。
+func (a *App) WithPet(p *pet.Supervisor) *App {
+	a.pet = p
+	return a
+}
+
 // Handler は登録内容から HTTP ハンドラを構築する。
 // terminal Service が WithTerminal で渡されていれば /terminal/* も組み込む。
 // error は将来の manifest ローダ等の失敗に備えた前方互換のため（現状は常に nil）。
@@ -73,6 +82,9 @@ func (a *App) Handler() (http.Handler, error) {
 	var opts []server.Option
 	if a.terminal != nil {
 		opts = append(opts, server.WithTerminal(a.terminal))
+	}
+	if a.pet != nil {
+		opts = append(opts, server.WithPet(a.pet))
 	}
 	return server.New(a.reg, shell.FS(), opts...), nil
 }
@@ -86,6 +98,16 @@ func (a *App) Run(addr string) error {
 	}
 	if err := validateAddrLoopback(addr); err != nil {
 		return err
+	}
+	if a.pet != nil {
+		a.pet.SetAddr(addr)
+		if a.pet.Autostart() {
+			go func() {
+				if _, err := a.pet.Launch(addr); err != nil {
+					log.Printf("pet auto-launch skipped: %v", err)
+				}
+			}()
+		}
 	}
 	h, err := a.Handler()
 	if err != nil {
