@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 )
@@ -32,6 +34,7 @@ func (b *fakeBackend) Stop(id string) error                     { return nil }
 func (b *fakeBackend) Inject(id, text string, enter bool) error { return nil }
 func (b *fakeBackend) SetSessionID(id, sessionID string)        {}
 func (b *fakeBackend) List() []SessionInfo                      { return nil }
+func (b *fakeBackend) AddStateListener(l StateListener)         {}
 func (b *fakeBackend) Routes() []plugin.Route                   { return b.routes }
 func (b *fakeBackend) Assets() fs.FS                            { return nil }
 
@@ -439,6 +442,29 @@ func TestService_HandlerStartRejectsInvalidID(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != 400 {
 		t.Fatalf("invalid id should be 400, got %d", res.StatusCode)
+	}
+}
+
+func TestService_EventsStreamsInitialState(t *testing.T) {
+	svc, _ := newTestService(t)
+	srv := httptest.NewServer(svc.Handler())
+	defer srv.Close()
+	req, _ := http.NewRequest("GET", srv.URL+"/terminal/events", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer res.Body.Close()
+	if ct := res.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type=%q", ct)
+	}
+	buf := make([]byte, 256)
+	n, _ := res.Body.Read(buf)
+	if !strings.Contains(string(buf[:n]), "event: state") {
+		t.Fatalf("no initial state event: %q", string(buf[:n]))
 	}
 }
 

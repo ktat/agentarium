@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/ktat/agentarium/kernel/server"
 )
@@ -31,9 +32,12 @@ type ServiceConfig struct {
 //   - 複数 backend から active を 1 つ選び、start/stop/inject/list/renderer を提供
 //   - フロント assets と WS ルートは active backend の Routes()/Assets() を経由
 type Service struct {
-	agents   *AgentRegistry
-	backends map[string]Backend
-	active   Backend
+	agents     *AgentRegistry
+	backends   map[string]Backend
+	active     Backend
+	events     *sseHub
+	lastAgg    string
+	lastAggMu  sync.Mutex
 }
 
 // NewService は config から Service を構築する。
@@ -60,7 +64,9 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		}
 		active = b
 	}
-	return &Service{agents: cfg.Agents, backends: backends, active: active}, nil
+	svc := &Service{agents: cfg.Agents, backends: backends, active: active, events: newSSEHub()}
+	active.AddStateListener(svc.onStateChange)
+	return svc, nil
 }
 
 // Active は現在選択されている backend を返す。
@@ -127,6 +133,7 @@ func (s *Service) MountOn(mux *http.ServeMux) {
 	mux.HandleFunc("GET /terminal/list", s.handleList)
 	mux.HandleFunc("GET /terminal/renderer", s.handleRenderer)
 	mux.HandleFunc("POST /terminal/inject", s.handleInject)
+	mux.HandleFunc("GET /terminal/events", s.handleEvents)
 	for _, rt := range s.active.Routes() {
 		pattern := rt.Method + " /terminal" + rt.Path
 		mux.HandleFunc(pattern, rt.Handler)

@@ -104,6 +104,7 @@ type TerminalBackend interface {
 	Inject(id, text string, enter bool) error
 	SetSessionID(id, sessionID string)
 	List() []SessionInfo
+	AddStateListener(StateListener)
 }
 
 // TransportBackend はフロント結線面。renderer 名・WS/HTTP ルート・フロント資産を返す。

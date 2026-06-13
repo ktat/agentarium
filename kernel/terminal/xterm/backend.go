@@ -59,6 +59,9 @@ func (b *Backend) SetSessionID(id, sessionID string) { b.Registry.SetSessionID(i
 // List は Registry の List をそのまま返す。
 func (b *Backend) List() []terminal.SessionInfo { return b.Registry.List() }
 
+// AddStateListener は Registry の AddStateListener に委譲する。
+func (b *Backend) AddStateListener(l terminal.StateListener) { b.Registry.AddStateListener(l) }
+
 // Routes は WS handler を返す。Service.MountOn が /terminal 配下に組み込み、
 // 最終的に GET /terminal/ws?id=<terminal-id> として公開される。
 func (b *Backend) Routes() []plugin.Route {

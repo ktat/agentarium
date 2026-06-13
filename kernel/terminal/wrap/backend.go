@@ -60,6 +60,9 @@ func (b *Backend) SetSessionID(id, sessionID string) { b.Registry.SetSessionID(i
 // List は Registry の List をそのまま返す。
 func (b *Backend) List() []terminal.SessionInfo { return b.Registry.List() }
 
+// AddStateListener は Registry の AddStateListener に委譲する。
+func (b *Backend) AddStateListener(l terminal.StateListener) { b.Registry.AddStateListener(l) }
+
 // Close は Registry の background goroutine（warmup / persist loop）を停止する。
 // terminal.Service.Close から呼ばれ、library 消費者の graceful shutdown で
 // goroutine leak を防ぐ（R1）。error は将来の拡張用に返すが現状は常に nil。
