@@ -32,8 +32,25 @@ func aggregateStates(items []SessionInfo) (map[string]int, string) {
 	return counts, highest
 }
 
-func stateEventBytes(counts map[string]int, highest string) []byte {
-	payload, _ := json.Marshal(map[string]any{"counts": counts, "highest": highest})
+// sessionsPayload は SessionInfo 群を SSE 用の per-session 配列に写す（Pet popover 用）。
+func sessionsPayload(items []SessionInfo) []map[string]string {
+	out := make([]map[string]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, map[string]string{
+			"id":    it.ID,
+			"label": it.Label,
+			"state": it.State.String(),
+		})
+	}
+	return out
+}
+
+func stateEventBytes(sessions []map[string]string, counts map[string]int, highest string) []byte {
+	payload, _ := json.Marshal(map[string]any{
+		"sessions": sessions,
+		"counts":   counts,
+		"highest":  highest,
+	})
 	return []byte(fmt.Sprintf("event: state\ndata: %s\n\n", payload))
 }
 
@@ -89,14 +106,19 @@ func (s *Service) EventSubscriberCount() int {
 // onStateChange は active backend の状態遷移ごとに呼ばれる（AddStateListener 登録）。
 // 集約状態を計算し、前回と変わったら全 SSE 購読者へ配信する。ポーリングしない。
 func (s *Service) onStateChange(id string, prev, next SessionState, source string) {
-	counts, highest := aggregateStates(s.active.List())
-	key := fmt.Sprintf("%s|%d|%d|%d", highest, counts["idle"], counts["running"], counts["awaiting_user"])
+	items := s.active.List()
+	counts, highest := aggregateStates(items)
+	ss := sessionsPayload(items)
+	key := highest
+	for _, m := range ss {
+		key += "|" + m["id"] + "=" + m["state"]
+	}
 	s.lastAggMu.Lock()
 	changed := key != s.lastAgg
 	s.lastAgg = key
 	s.lastAggMu.Unlock()
 	if changed {
-		s.events.broadcast(stateEventBytes(counts, highest))
+		s.events.broadcast(stateEventBytes(ss, counts, highest))
 	}
 }
 
@@ -115,8 +137,9 @@ func (s *Service) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ch := s.events.add()
 	defer s.events.remove(ch)
 
-	counts, highest := aggregateStates(s.active.List())
-	_, _ = w.Write(stateEventBytes(counts, highest))
+	items := s.active.List()
+	counts, highest := aggregateStates(items)
+	_, _ = w.Write(stateEventBytes(sessionsPayload(items), counts, highest))
 	flusher.Flush()
 
 	ping := time.NewTicker(15 * time.Second)

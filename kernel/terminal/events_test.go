@@ -44,13 +44,32 @@ func TestAggregateStates_Priority(t *testing.T) {
 	}
 }
 
-func TestStateEventBytes_Format(t *testing.T) {
-	b := stateEventBytes(map[string]int{"idle": 1, "running": 0, "awaiting_user": 0}, "idle")
-	s := string(b)
-	if !strings.HasPrefix(s, "event: state\ndata: ") || !strings.HasSuffix(s, "\n\n") {
-		t.Fatalf("bad SSE framing: %q", s)
+func TestSessionsPayload(t *testing.T) {
+	items := []SessionInfo{
+		{ID: "t1", Label: "alpha", State: newSessionStateForTest("running")},
+		{ID: "t2", Label: "beta", State: newSessionStateForTest("idle")},
 	}
-	if !strings.Contains(s, `"highest":"idle"`) || !strings.Contains(s, `"counts"`) {
-		t.Fatalf("bad payload: %q", s)
+	ss := sessionsPayload(items)
+	if len(ss) != 2 {
+		t.Fatalf("want 2, got %d", len(ss))
+	}
+	if ss[0]["id"] != "t1" || ss[0]["label"] != "alpha" || ss[0]["state"] != "running" {
+		t.Fatalf("ss[0]=%v", ss[0])
+	}
+	if ss[1]["state"] != "idle" {
+		t.Fatalf("ss[1]=%v", ss[1])
+	}
+}
+
+func TestStateEventBytes_IncludesSessions(t *testing.T) {
+	ss := []map[string]string{{"id": "t1", "label": "a", "state": "running"}}
+	b := string(stateEventBytes(ss, map[string]int{"idle": 0, "running": 1, "awaiting_user": 0}, "running"))
+	if !strings.HasPrefix(b, "event: state\ndata: ") || !strings.HasSuffix(b, "\n\n") {
+		t.Fatalf("framing: %q", b)
+	}
+	for _, want := range []string{`"sessions"`, `"id":"t1"`, `"label":"a"`, `"state":"running"`, `"highest":"running"`, `"counts"`} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("missing %q in %q", want, b)
+		}
 	}
 }
