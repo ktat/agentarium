@@ -4,8 +4,10 @@ package pet
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ktat/agentarium/kernel/secrets"
+	"github.com/ktat/agentarium/kernel/server"
 )
 
 // 設定キー（secrets.Store。settings の kernel グループ規約 kernel.<field>）。
@@ -97,6 +100,84 @@ func (s *Supervisor) Launch(addr string) (string, error) {
 		_ = cmd.Process.Release()
 	}
 	return bin, nil
+}
+
+// MountOn は pet の制御 route を mux に登録する（server.Mountable）。
+func (s *Supervisor) MountOn(mux *http.ServeMux) {
+	mux.HandleFunc("GET /pet/config", s.handleConfigGet)
+	mux.HandleFunc("POST /pet/config", s.handleConfigSet)
+	mux.HandleFunc("GET /pet/skins", s.handleSkins)
+	mux.HandleFunc("POST /pet/launch", s.handleLaunch)
+	mux.HandleFunc("GET /pet/status", s.handleStatus)
+}
+
+func (s *Supervisor) handleConfigGet(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"binary": s.binary(), "skin": s.skin(), "autostart": s.Autostart()})
+}
+
+type configBody struct {
+	Binary    string `json:"binary"`
+	Skin      string `json:"skin"`
+	Autostart bool   `json:"autostart"`
+}
+
+func (s *Supervisor) handleConfigSet(w http.ResponseWriter, r *http.Request) {
+	if !server.IsLocalOriginOrAbsent(r) {
+		http.Error(w, "cross-origin rejected", http.StatusForbidden)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	var body configBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	auto := ""
+	if body.Autostart {
+		auto = "1"
+	}
+	for k, v := range map[string]string{KeyBinary: body.Binary, KeySkin: body.Skin, KeyAutostart: auto} {
+		if err := s.store.Set(k, v); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Supervisor) handleSkins(w http.ResponseWriter, r *http.Request) {
+	skins, err := s.ListSkins()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"skins": skins})
+}
+
+func (s *Supervisor) handleLaunch(w http.ResponseWriter, r *http.Request) {
+	if !server.IsLocalOriginOrAbsent(r) {
+		http.Error(w, "cross-origin rejected", http.StatusForbidden)
+		return
+	}
+	bin, err := s.Launch(s.addr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"launched": true, "binary": bin})
+}
+
+func (s *Supervisor) handleStatus(w http.ResponseWriter, r *http.Request) {
+	n := 0
+	if s.subCount != nil {
+		n = s.subCount()
+	}
+	writeJSON(w, map[string]any{"subscriber_count": n, "connected": n >= 1})
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // logPath は ~/.config/agentarium/pet.log（取れなければ ""）。
