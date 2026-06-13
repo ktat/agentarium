@@ -115,6 +115,7 @@ func (fakeBackendForApp) SetSessionID(id, sessionID string)        {}
 func (fakeBackendForApp) List() []terminal.SessionInfo             { return nil }
 func (fakeBackendForApp) Routes() []plugin.Route                   { return nil }
 func (fakeBackendForApp) Assets() fs.FS                            { return nil }
+func (fakeBackendForApp) AddStateListener(l terminal.StateListener) {}
 
 func TestApp_WithTerminalRegistersRoutes(t *testing.T) {
 	app := New()
