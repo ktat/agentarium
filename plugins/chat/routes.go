@@ -81,10 +81,60 @@ func (p Plugin) handleList(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"items": recs})
 }
 
-// handleUpdate / handleArchive は Task B3 で本実装。まずはコンパイルを通す仮実装。
+// handleUpdate は POST /plugins/chat/update?id=&session_id= で再開識別子を紐付ける。
 func (p Plugin) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if !server.IsLocalOriginOrAbsent(r) {
+		http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+		return
+	}
+	sid := r.URL.Query().Get("session_id")
+	p.mutate(w, r.URL.Query().Get("id"), func(rec *ChatRecord) {
+		rec.SessionID = sid
+	})
 }
+
+// handleArchive は POST /plugins/chat/archive?id= でレコードを archive する。
 func (p Plugin) handleArchive(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if !server.IsLocalOriginOrAbsent(r) {
+		http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+		return
+	}
+	now := time.Now().Format(time.RFC3339)
+	p.mutate(w, r.URL.Query().Get("id"), func(rec *ChatRecord) {
+		rec.ArchivedAt = now
+	})
+}
+
+// mutate は id のレコードに fn を適用して保存する。見つからなければ 404、成功で 204。
+func (p Plugin) mutate(w http.ResponseWriter, id string, fn func(*ChatRecord)) {
+	if id == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	recs, err := p.store.Load()
+	if err != nil {
+		log.Printf("plugins/chat: load: %v", err)
+		http.Error(w, "failed to load chat store", http.StatusInternalServerError)
+		return
+	}
+	found := false
+	for i := range recs {
+		if recs[i].ID == id {
+			fn(&recs[i])
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "id not found", http.StatusNotFound)
+		return
+	}
+	if err := p.store.Save(recs); err != nil {
+		log.Printf("plugins/chat: save: %v", err)
+		http.Error(w, "failed to save chat store", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
