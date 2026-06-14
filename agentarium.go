@@ -6,12 +6,14 @@ package agentarium
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
 	"github.com/ktat/agentarium/kernel/server"
@@ -25,6 +27,7 @@ type App struct {
 	reg      *plugin.Registry
 	terminal *terminal.Service
 	secrets  *secrets.Store
+	pet      *pet.Supervisor
 	mu       sync.Mutex
 	srv      *http.Server
 }
@@ -66,6 +69,12 @@ func (a *App) WithSecrets(store *secrets.Store) *App {
 	return a
 }
 
+// WithPet は Pet supervisor を opt-in する（/pet/* を mount。Run 時に autostart）。
+func (a *App) WithPet(p *pet.Supervisor) *App {
+	a.pet = p
+	return a
+}
+
 // Handler は登録内容から HTTP ハンドラを構築する。
 // terminal Service が WithTerminal で渡されていれば /terminal/* も組み込む。
 // error は将来の manifest ローダ等の失敗に備えた前方互換のため（現状は常に nil）。
@@ -73,6 +82,9 @@ func (a *App) Handler() (http.Handler, error) {
 	var opts []server.Option
 	if a.terminal != nil {
 		opts = append(opts, server.WithTerminal(a.terminal))
+	}
+	if a.pet != nil {
+		opts = append(opts, server.WithPet(a.pet))
 	}
 	return server.New(a.reg, shell.FS(), opts...), nil
 }
@@ -91,15 +103,32 @@ func (a *App) Run(addr string) error {
 	if err != nil {
 		return err
 	}
+	// 先に bind してから pet を起動する。bind 失敗時に pet を起動しない/
+	// :0 等の動的ポートでも実際にバインドされた addr を pet へ渡すため。
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	boundAddr := ln.Addr().String()
+	if a.pet != nil {
+		a.pet.SetAddr(boundAddr)
+		if a.pet.Autostart() {
+			go func() {
+				if _, err := a.pet.Launch(boundAddr); err != nil {
+					log.Printf("pet auto-launch skipped: %v", err)
+				}
+			}()
+		}
+	}
 	srv := &http.Server{
-		Addr:              addr,
+		Addr:              boundAddr,
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second, // slowloris 緩和
 	}
 	a.mu.Lock()
 	a.srv = srv
 	a.mu.Unlock()
-	return srv.ListenAndServe()
+	return srv.Serve(ln)
 }
 
 // Shutdown は Run で起動した http.Server を graceful に停止し、続けて

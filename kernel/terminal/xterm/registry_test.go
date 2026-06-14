@@ -1,6 +1,7 @@
 package xterm
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ func (catAgent) Invocation(req terminal.RunRequest) (string, []string) {
 }
 
 func TestRegistry_StartGetRunning(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	p, err := r.Start("t1", "Tab 1", catAgent{}, terminal.RunRequest{})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -34,7 +35,7 @@ func TestRegistry_StartGetRunning(t *testing.T) {
 }
 
 func TestRegistry_StartReusesRunning(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	p1, _ := r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	p2, _ := r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("t1") }()
@@ -44,21 +45,21 @@ func TestRegistry_StartReusesRunning(t *testing.T) {
 }
 
 func TestRegistry_StartEmptyID(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	if _, err := r.Start("", "L", catAgent{}, terminal.RunRequest{}); err == nil {
 		t.Fatal("want error for empty id")
 	}
 }
 
 func TestRegistry_StartNilAgent(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	if _, err := r.Start("t1", "L", nil, terminal.RunRequest{}); err == nil {
 		t.Fatal("want error for nil agent")
 	}
 }
 
 func TestRegistry_ListSortedAndRunning(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("b", "B", catAgent{}, terminal.RunRequest{})
 	_, _ = r.Start("a", "A", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("a"); _ = r.Stop("b") }()
@@ -72,7 +73,7 @@ func TestRegistry_ListSortedAndRunning(t *testing.T) {
 }
 
 func TestRegistry_SetSessionIDAndIndex(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("t1") }()
 	r.SetSessionID("t1", "sess-xyz")
@@ -85,7 +86,7 @@ func TestRegistry_SetSessionIDAndIndex(t *testing.T) {
 }
 
 func TestRegistry_StateTransitionNotifiesListener(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("t1") }()
 	type ev struct {
@@ -108,7 +109,7 @@ func TestRegistry_StateTransitionNotifiesListener(t *testing.T) {
 }
 
 func TestRegistry_StopRemovesEntry(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	if err := r.Stop("t1"); err != nil {
 		t.Fatalf("stop: %v", err)
@@ -122,7 +123,7 @@ func TestRegistry_StopRemovesEntry(t *testing.T) {
 // cols/altRows なし。catAgent は xterm 側のテストヘルパに合わせる。
 // 既存テスト (TestRegistry_StartReusesRunning など) と同じ helper を使う。
 func TestRegistry_StopThenStartSameID_OldOnExitDoesNotRemoveNew(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	p1, _ := r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	if err := r.Stop("t1"); err != nil {
 		t.Fatalf("stop1: %v", err)
@@ -137,5 +138,98 @@ func TestRegistry_StopThenStartSameID_OldOnExitDoesNotRemoveNew(t *testing.T) {
 	}
 	if got := r.Get("t1"); got != p2 {
 		t.Fatalf("registry lost the new entry; got %v want %v", got, p2)
+	}
+}
+
+func TestPersist_WritesSessionRecord(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	r := NewRegistryWithStore(dir, nil, store)
+	ag := terminal.ConfigAgent{AgentName: "claude", Binary: "cat", ModelFlag: "--model"}
+	if _, err := r.Start("t1", "L1", ag, terminal.RunRequest{Model: "opus"}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	r.SetSessionID("t1", "s1")
+
+	recs, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("want 1 record, got %d", len(recs))
+	}
+	got := recs[0]
+	if got.Agent != "claude" || got.Model != "opus" || got.SessionID != "s1" || got.Label != "L1" {
+		t.Fatalf("record missing fields: %+v", got)
+	}
+	if got.WorkDir != dir {
+		t.Fatalf("WorkDir not wired: want %q, got %q", dir, got.WorkDir)
+	}
+}
+
+func TestRestoreFromStoreLazy_RegistersPendingXterm(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	r := NewRegistryWithStore(dir, agents, store)
+	t.Cleanup(r.Close)
+
+	pending, total := r.RestoreFromStoreLazy(nil)
+	if pending != 1 || total != 1 {
+		t.Fatalf("want (1,1), got (%d,%d)", pending, total)
+	}
+	items := r.List()
+	if len(items) != 1 || items[0].Running {
+		t.Fatalf("want 1 pending (Running=false), got %+v", items)
+	}
+	// EnsureStarted で pending が起動する。
+	p, ok := r.EnsureStarted("t1")
+	if !ok || p == nil || !p.Running() {
+		t.Fatalf("EnsureStarted did not start pending: ok=%v", ok)
+	}
+	t.Cleanup(func() { _ = p.Stop() })
+}
+
+func TestStop_PendingEntryNoPanic(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", SessionID: "s1", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	r := NewRegistryWithStore(dir, agents, store)
+	t.Cleanup(r.Close)
+	r.RestoreFromStoreLazy(nil) // t1 を pending（Process==nil）で登録
+	// pending entry の Stop は Process が無いので panic せず nil を返すべき。
+	if err := r.Stop("t1"); err != nil {
+		t.Fatalf("Stop on pending entry: %v", err)
+	}
+}
+
+func TestRestoreFromStoreLazy_SkipsWhenCannotResumeXterm(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", SessionID: "s1", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	r := NewRegistryWithStore(dir, agents, store)
+	t.Cleanup(r.Close)
+
+	pending, total := r.RestoreFromStoreLazy(func(terminal.SessionRecord) bool { return false })
+	if pending != 0 || total != 1 {
+		t.Fatalf("want (0,1) when cannot resume, got (%d,%d)", pending, total)
 	}
 }

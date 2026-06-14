@@ -41,7 +41,7 @@ go run ./cmd/agentarium
 | 変数 | 既定 | 説明 |
 |---|---|---|
 | `AGENTARIUM_ADDR` | `127.0.0.1:8780` | listen アドレス |
-| `AGENTARIUM_TERMINAL_RENDERER` | `xterm` | ターミナル backend（`xterm` / `wrap`） |
+| `AGENTARIUM_TERMINAL_RENDERER` | `xterm` | ターミナル backend（`xterm` / `wrap`）。Settings タブの「Kernel」からも設定でき、保存値が env より優先される（変更は再起動で反映） |
 | `AGENTARIUM_ALLOW_PUBLIC` | （未設定） | `1` で非ループバックアドレスへのバインドを許可（既定はループバックのみ） |
 
 ## プラグイン
@@ -158,6 +158,27 @@ agentarium.closeViewer('doc');
 **Notion / Slack 等のアプリ固有ビューアは upstream に含めない。** 消費者リポのアプリプラグインが
 `openViewer` を呼んで実装する（社内 ID・ホスト・認証に依存するため。消費モデルの節を参照）。
 
+### Pet 連携（外部バイナリ）
+
+デスクトップ Pet（マスコット）は **別バイナリ**として実装し、agentarium が公開する契約に従う。
+agentarium 本体に Pet 描画は含めず、Settings タブの「Pet」ブロックから binary パス・skin・
+自動起動を設定し、その場で起動もできる（`App.WithPet` で opt-in）。
+
+**Pet バイナリの CLI 契約**
+- `pet --list-skin` : 利用可能スキンを 1 行 1 名で stdout に出力。
+- `pet --server <host:port> [--skin <name>]` : 起動し `http://<host:port>/terminal/events` に SSE 接続。
+
+**状態 SSE 契約** `GET /terminal/events`（`text/event-stream`）。接続時に現在状態、以後は状態変化時のみ送信、15 秒ごとに `: ping` で keepalive:
+
+```text
+event: state
+data: {"sessions":[{"id":"t1","label":"...","state":"running"}],"counts":{"idle":N,"running":N,"awaiting_user":N},"highest":"awaiting_user|running|idle"}
+```
+
+`sessions[]` は全 terminal の状態（Pet の popover 用）。`highest` の優先度は awaiting_user > running > idle で、Pet はこれを表情にマップする。この契約に従えば誰でも Pet バイナリを実装できる。
+
+**focus**: Pet の popover 項目クリックは OS の open コマンドで `http://<host:port>/#term=<id>` を開く。shell はこの `#term=<id>` を解釈して該当 Agent タブを開く/アクティブ化する。
+
 ### 同梱プラグイン
 
 | プラグイン | 説明 |
@@ -173,6 +194,18 @@ backend は 2 種類:
 
 - `xterm`: 生 PTY バイト + xterm.js
 - `wrap`: サーバ側 VT エミュレータ（行差分を JSON で送出）
+
+### セッション復元（再起動越え）
+
+`NewRegistryWithStore` で Store を渡すと、開いていた Agent ターミナルを再起動越しに復元します。
+プロセス自体は引き継がず、**Agent のセッション（`claude --resume <id>`）として論理復元**します。
+
+- 保存先（参照デモ）: `<os.UserConfigDir>/agentarium/terminal-<renderer>.json`（renderer 別）
+- 復元は lazy: 起動時は pending 登録のみ、タブを開く（WS 接続）と起動。warmup が低頻度で残りを起動
+- 復元可否は `terminal.ResumableAgent.ResumeArtifact` が示すファイルの存在で判定（claude なら jsonl）。
+  消費者は `ServiceConfig.CanResume` に判定関数を渡す（参照デモは `sessions.CanResume` を使用）
+- フロント（xterm/wrap 両 renderer）は WS 切断時に自動再接続（指数バックオフ + 「再接続中…」表示）。
+  サーバ再起動後に手動リロードなしで復元セッションへ繋ぎ直る
 
 ## examples
 

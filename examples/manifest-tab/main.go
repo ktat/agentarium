@@ -57,7 +57,7 @@ func main() {
 
 	agents := terminal.NewAgentRegistry("claude")
 	agents.Register(claudeAgent{})
-	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd)}
+	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd, agents)}
 	svc, err := terminal.NewService(terminal.ServiceConfig{
 		Agents:   agents,
 		Backends: []terminal.Backend{xtermBackend},

@@ -104,6 +104,12 @@ type TerminalBackend interface {
 	Inject(id, text string, enter bool) error
 	SetSessionID(id, sessionID string)
 	List() []SessionInfo
+	AddStateListener(StateListener)
+	// Restore は起動時に永続化レコードから復元する（spec §B）。SessionID を持つレコードに
+	// のみ canResume を適用し、false を返すものは skip する（SessionID の無いレコードは
+	// resume 対象でないため canResume に関わらず常に復元する）。store を持たない backend は
+	// (0,0) を返す no-op で満たす。戻り値は (復元できた件数, レコード総件数)。
+	Restore(canResume func(rec SessionRecord) bool) (restored, total int)
 }
 
 // TransportBackend はフロント結線面。renderer 名・WS/HTTP ルート・フロント資産を返す。

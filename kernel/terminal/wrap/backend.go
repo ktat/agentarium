@@ -4,6 +4,7 @@ import (
 	"embed"
 	"errors"
 	"io/fs"
+	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/terminal"
@@ -60,12 +61,31 @@ func (b *Backend) SetSessionID(id, sessionID string) { b.Registry.SetSessionID(i
 // List は Registry の List をそのまま返す。
 func (b *Backend) List() []terminal.SessionInfo { return b.Registry.List() }
 
+// AddStateListener は Registry の AddStateListener に委譲する。
+func (b *Backend) AddStateListener(l terminal.StateListener) { b.Registry.AddStateListener(l) }
+
 // Close は Registry の background goroutine（warmup / persist loop）を停止する。
 // terminal.Service.Close から呼ばれ、library 消費者の graceful shutdown で
 // goroutine leak を防ぐ（R1）。error は将来の拡張用に返すが現状は常に nil。
 func (b *Backend) Close() error {
 	b.Registry.Close()
 	return nil
+}
+
+// warmupInterval は Restore 後の lazy warmup が pending entry を 1 件ずつ起動する間隔。
+// 復元コストを時間軸に分散する（registry_lazy.go の StartLazyWarmupLoop 参照）。
+// 現状は固定値。消費者が調整したくなったら ServiceConfig 等に逃がす（YAGNI のため今は定数）。
+const warmupInterval = 2 * time.Second
+
+// Restore は store の永続レコードを lazy 復元（pending 登録）し、warmup loop を起動する。
+// pending entry は WS attach（EnsureStarted）でも起動するため、誰も開かない entry を
+// warmup が時間差で起動する。canResume=false のレコードは skip（resume 不能セッション回避）。
+func (b *Backend) Restore(canResume func(terminal.SessionRecord) bool) (int, int) {
+	pending, total := b.Registry.RestoreFromStoreLazy(canResume)
+	if pending > 0 {
+		b.Registry.StartLazyWarmupLoop(warmupInterval)
+	}
+	return pending, total
 }
 
 // Routes は WS handler を返す。Service.MountOn が /terminal 配下に組み込み、

@@ -23,12 +23,18 @@ type Option func(*config)
 // config は New 内部の構築状態を持つ。external には公開しない。
 type config struct {
 	terminal Mountable
+	pet      Mountable
 }
 
 // WithTerminal は terminal.Service を server に統合するオプション。
 // 渡された Service は MountOn(mux) で /terminal/* を mux に登録する。
 func WithTerminal(svc Mountable) Option {
 	return func(c *config) { c.terminal = svc }
+}
+
+// WithPet は pet supervisor を server に統合する（/pet/* を mux に登録する）。
+func WithPet(p Mountable) Option {
+	return func(c *config) { c.pet = p }
 }
 
 // New はレジストリとシェルアセットから *http.ServeMux を構築する。
@@ -63,6 +69,9 @@ func New(reg *plugin.Registry, shellFS fs.FS, opts ...Option) *http.ServeMux {
 	mux.HandleFunc("GET /{$}", indexHandler(shellFS))
 	if cfg.terminal != nil {
 		cfg.terminal.MountOn(mux)
+	}
+	if cfg.pet != nil {
+		cfg.pet.MountOn(mux)
 	}
 	return mux
 }

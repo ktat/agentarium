@@ -18,6 +18,33 @@ var assetsFS embed.FS
 
 const saveMaxBytes = 64 * 1024
 
+// カーネル自身の設定（プラグインではない）。Settings タブに "Kernel" グループとして出す。
+const (
+	kernelGroupID = "kernel"
+	rendererField = "terminal_renderer"
+	// KeyTerminalRenderer は secrets.Store 上のカーネル renderer 設定キー。
+	// cmd 側がこのキーを読んで active backend を選ぶ。
+	KeyTerminalRenderer = kernelGroupID + "." + rendererField
+)
+
+// rendererOptions は terminal_renderer の選択肢（表示順）。UI はこれをラジオで出す。
+var rendererOptions = []string{"xterm", "wrap"}
+
+// allowedRenderers は terminal_renderer に許す値（検証用）。
+var allowedRenderers = map[string]bool{"xterm": true, "wrap": true}
+
+// TerminalRenderer は store に保存された renderer 設定（"xterm"/"wrap"）を返す。
+// 未設定・不正値は "" を返す（呼び出し側が env/既定へフォールバックする想定）。
+func TerminalRenderer(store *secrets.Store) string {
+	if store == nil {
+		return ""
+	}
+	if v, ok := store.Get(KeyTerminalRenderer); ok && allowedRenderers[v] {
+		return v
+	}
+	return ""
+}
+
 type settingsPlugin struct {
 	reg   *plugin.Registry
 	store *secrets.Store
@@ -48,11 +75,12 @@ func (p *settingsPlugin) Assets() fs.FS {
 }
 
 type fieldDTO struct {
-	Key    string `json:"key"`
-	Label  string `json:"label"`
-	Secret bool   `json:"secret"`
-	Value  string `json:"value,omitempty"`
-	Set    bool   `json:"set,omitempty"`
+	Key     string   `json:"key"`
+	Label   string   `json:"label"`
+	Secret  bool     `json:"secret"`
+	Value   string   `json:"value,omitempty"`
+	Set     bool     `json:"set,omitempty"`
+	Options []string `json:"options,omitempty"` // 非空なら UI はラジオで選択させる
 }
 
 type pluginDTO struct {
@@ -64,6 +92,12 @@ type pluginDTO struct {
 // handleSchema は設定を持つプラグイン一覧を表示状態で返す。Secret 値は返さない。
 func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 	out := make([]pluginDTO, 0)
+	// カーネル自身の設定グループを先頭に出す（プラグインではない）。
+	rendererDTO := fieldDTO{Key: rendererField, Label: "Terminal renderer（変更は再起動で反映）", Options: rendererOptions}
+	if v, ok := p.store.Get(KeyTerminalRenderer); ok {
+		rendererDTO.Value = v
+	}
+	out = append(out, pluginDTO{ID: kernelGroupID, Title: "Kernel", Fields: []fieldDTO{rendererDTO}})
 	for _, pl := range p.reg.Plugins() {
 		sp, ok := pl.(plugin.SettingsProvider)
 		if !ok {
@@ -103,6 +137,21 @@ func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 	var body saveReq
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	// カーネル設定グループ（プラグインではない）。renderer のみ受け付ける。
+	if body.ID == kernelGroupID {
+		if v, ok := body.Values[rendererField]; ok {
+			if v != "" && !allowedRenderers[v] {
+				http.Error(w, "invalid renderer (xterm|wrap)", http.StatusBadRequest)
+				return
+			}
+			if err := p.store.Set(KeyTerminalRenderer, v); err != nil {
+				http.Error(w, "save failed", http.StatusInternalServerError)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	sp := p.findProvider(body.ID)

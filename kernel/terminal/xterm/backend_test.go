@@ -2,13 +2,14 @@ package xterm
 
 import (
 	"io/fs"
+	"path/filepath"
 	"testing"
 
 	"github.com/ktat/agentarium/kernel/terminal"
 )
 
 func newBackend() *Backend {
-	return &Backend{Registry: NewRegistry("")}
+	return &Backend{Registry: NewRegistry("", nil)}
 }
 
 func TestBackend_NameAndRenderer(t *testing.T) {
@@ -81,5 +82,30 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 	var _ fs.FS = b.Assets()
 	if _, err := fs.ReadFile(b.Assets(), "index.js"); err != nil {
 		t.Fatalf("index.js should be embedded: %v", err)
+	}
+}
+
+// TestBackend_Restore_RegistersPendingXterm は Restore が store の永続レコードを
+// pending 復元すること（List に Running=false で載ること）を検証する。
+func TestBackend_Restore_RegistersPendingXterm(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	b := &Backend{Registry: NewRegistryWithStore(dir, agents, store)}
+	t.Cleanup(func() { _ = b.Close() })
+
+	restored, total := b.Restore(nil)
+	if restored != 1 || total != 1 {
+		t.Fatalf("want (1,1), got (%d,%d)", restored, total)
+	}
+	items := b.List()
+	if len(items) != 1 || items[0].ID != "t1" || items[0].Running {
+		t.Fatalf("want 1 pending item, got %+v", items)
 	}
 }

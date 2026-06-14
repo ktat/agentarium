@@ -16,7 +16,9 @@ func (fullBackend) Stop(id string) error                                   { ret
 func (fullBackend) Inject(id, text string, enter bool) error               { return nil }
 func (fullBackend) SetSessionID(id, sessionID string)                      {}
 func (fullBackend) List() []SessionInfo                                    { return nil }
-func (fullBackend) Renderer() string                                       { return "x" }
+func (fullBackend) AddStateListener(l StateListener)                              {}
+func (fullBackend) Restore(canResume func(SessionRecord) bool) (int, int) { return 0, 0 }
+func (fullBackend) Renderer() string                                              { return "x" }
 func (fullBackend) Routes() []plugin.Route                                 { return nil }
 func (fullBackend) Assets() fs.FS                                          { return nil }
 

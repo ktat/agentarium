@@ -39,6 +39,34 @@ async function main() {
     });
     leftBar.appendChild(btn);
   }
+  await focusFromHash();
+  window.addEventListener('hashchange', focusFromHash);
+}
+
+// focusFromHash は location.hash が "#term=<id>" のとき該当 Agent タブを開く/アクティブ化する。
+// Pet の popover クリックが xdg-open する deep-link を処理する。
+async function focusFromHash() {
+  const m = /^#term=(.+)$/.exec(location.hash || '');
+  if (!m) return;
+  let id;
+  try {
+    id = decodeURIComponent(m[1]);
+  } catch (_) {
+    return; // 不正な % エスケープ等は無視（main() を中断させない）
+  }
+  let label = id;
+  try {
+    const res = await fetch('/terminal/list');
+    if (res.ok) {
+      const data = await res.json();
+      const items = (data && data.items) || [];
+      const hit = items.find((it) => it.ID === id || it.id === id);
+      if (hit) label = hit.Label || hit.label || id;
+    }
+  } catch (_) {}
+  if (window.agentarium && typeof window.agentarium.openAgentTab === 'function') {
+    window.agentarium.openAgentTab({ key: id, label: label });
+  }
 }
 
 async function activate(p, panel) {

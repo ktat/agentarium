@@ -14,7 +14,7 @@ import (
 
 func newWSBackend(t *testing.T) (*Backend, *httptest.Server) {
 	t.Helper()
-	b := &Backend{Registry: NewRegistry("")}
+	b := &Backend{Registry: NewRegistry("", nil)}
 	mux := http.NewServeMux()
 	for _, rt := range b.Routes() {
 		mux.HandleFunc(rt.Method+" /terminal"+rt.Path, rt.Handler)

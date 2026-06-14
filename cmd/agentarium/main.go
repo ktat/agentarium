@@ -12,9 +12,12 @@ import (
 	"path/filepath"
 
 	"github.com/ktat/agentarium"
+	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
+	"github.com/ktat/agentarium/kernel/settings"
 	"github.com/ktat/agentarium/kernel/terminal"
+	"github.com/ktat/agentarium/kernel/terminal/wrap"
 	"github.com/ktat/agentarium/kernel/terminal/xterm"
 	"github.com/ktat/agentarium/plugins/hello"
 	"github.com/ktat/agentarium/plugins/sessions"
@@ -41,6 +44,19 @@ func (claudeAgent) Invocation(req terminal.RunRequest) (string, []string) {
 	return "claude", args
 }
 
+// ResumeArtifact は claude セッション履歴 jsonl のパスを返す（terminal.ResumableAgent）。
+// 存在すれば --resume 可能。sessions プラグインの projects dir 規約を再利用する。
+func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	dir, err := sessions.SessionsDirFor(workDir)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, sessionID+".jsonl")
+}
+
 // secretsPaths は設定データと鍵ファイルのパスを返す（os.UserConfigDir 配下）。
 func secretsPaths() (data, key string, err error) {
 	dir, err := os.UserConfigDir()
@@ -49,6 +65,16 @@ func secretsPaths() (data, key string, err error) {
 	}
 	base := filepath.Join(dir, "agentarium")
 	return filepath.Join(base, "settings.json"), filepath.Join(base, "secret.key"), nil
+}
+
+// terminalStorePath は renderer 別のセッション永続化ファイルパスを返す
+// （UserConfigDir/agentarium/terminal-<renderer>.json）。
+func terminalStorePath(renderer string) (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "agentarium", "terminal-"+renderer+".json"), nil
 }
 
 func main() {
@@ -130,16 +156,43 @@ func runServer() error {
 
 	agents := terminal.NewAgentRegistry("claude")
 	agents.Register(claudeAgent{})
-	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd)}
+	wrapStorePath, err := terminalStorePath("wrap")
+	if err != nil {
+		return err
+	}
+	xtermStorePath, err := terminalStorePath("xterm")
+	if err != nil {
+		return err
+	}
+	// xterm / wrap 両 backend をコンパイルに含めて登録し、実行時に active を選ぶ。
+	// Store 付きにすることで再起動越えのセッション復元（lazy restore）が有効になる。
+	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistryWithStore(wd, agents, terminal.NewStore(xtermStorePath))}
+	wrapBackend := &wrap.Backend{Registry: wrap.NewRegistryWithStore(wd, agents, wrap.NewStore(wrapStorePath))}
+	// active backend は Settings（kernel.terminal_renderer）→ env → 既定 xterm の順で決定。
+	active := settings.TerminalRenderer(sec)
+	if active == "" {
+		active = terminal.EnvActiveBackend()
+	}
+	// canResume: 永続レコードの Agent を解決し、その Agent が表明する artifact の存在で
+	// resume 可否を判定する（claude なら jsonl 存在チェック）。
+	// 永続レコードは常に具体的な Agent 名を持つ前提。agents.Resolve が nil を返す
+	// （空名 / 未登録）場合は CanResume が楽観的に true を返す（resolveAgent の Default
+	// fallback とは非対称だが、未知 agent は復元側で既に skip 済みのため実害なし）。
+	canResume := func(rec terminal.SessionRecord) bool {
+		return sessions.CanResume(agents.Resolve(rec.Agent), rec.WorkDir, rec.SessionID)
+	}
 	svc, err := terminal.NewService(terminal.ServiceConfig{
-		Agents:   agents,
-		Backends: []terminal.Backend{xtermBackend},
-		Active:   terminal.EnvActiveBackend(),
+		Agents:    agents,
+		Backends:  []terminal.Backend{xtermBackend, wrapBackend},
+		Active:    active,
+		CanResume: canResume,
 	})
 	if err != nil {
 		return err
 	}
 	app.WithTerminal(svc)
+	app.WithPet(pet.New(sec, svc.EventSubscriberCount))
+	log.Printf("agentarium: active terminal renderer = %q", active)
 
 	addr := os.Getenv("AGENTARIUM_ADDR")
 	log.Printf("agentarium demo starting (addr=%q, empty=default)", addr)

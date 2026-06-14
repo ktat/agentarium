@@ -2,6 +2,7 @@ package wrap
 
 import (
 	"io/fs"
+	"path/filepath"
 	"testing"
 
 	"github.com/ktat/agentarium/kernel/terminal"
@@ -85,4 +86,41 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 	if _, err := fs.ReadFile(b.Assets(), "index.js"); err != nil {
 		t.Fatalf("index.js should be embedded: %v", err)
 	}
+}
+
+func TestBackendAssets_HasRendererFiles(t *testing.T) {
+	assets := newBackend().Assets()
+	for _, name := range []string{"index.js", "wrap.css"} {
+		if _, err := fs.Stat(assets, name); err != nil {
+			t.Errorf("assets missing %s: %v", name, err)
+		}
+	}
+}
+
+func TestBackend_Restore_RegistersPending(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "w.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	reg := NewRegistryWithStore(dir, agents, store)
+	t.Cleanup(reg.Close)
+	b := &Backend{Registry: reg}
+
+	restored, total := b.Restore(nil)
+	if total != 1 || restored != 1 {
+		t.Fatalf("want (1,1), got (%d,%d)", restored, total)
+	}
+	items := b.List()
+	if len(items) != 1 || items[0].ID != "t1" || items[0].Running {
+		t.Fatalf("want 1 pending (Running=false) item, got %+v", items)
+	}
+	// b.Restore は warmup loop を起動する。warmupInterval(2s) を跨ぐと cat が
+	// spawn されうるため、検証後すぐ Close で loop を確定停止する（Close は
+	// 冪等＆wg.Wait で in-flight 起動を待つので、cleanup の Close は no-op）。
+	reg.Close()
 }

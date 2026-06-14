@@ -1,0 +1,96 @@
+:root {
+  /* wrap ターミナルのフォント。列を揃えるため等幅のみ（プロポーショナルは混ぜない）。
+     CJK は等幅 CJK にフォールバックさせ、最後は環境既定の monospace。
+     ここを変えれば viewport / ime / measureCell（CSS 継承で実測）すべてに反映される。 */
+  --twrap-font: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono CJK JP", "Noto Sans Mono", monospace;
+}
+.twrap-viewport {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #555 #0c0c0c;
+  scrollbar-gutter: stable;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 4px 8px;
+  font-family: var(--twrap-font);
+  font-size: 13px;
+  line-height: 1.0;
+  font-feature-settings: "calt" 0, "liga" 0, "dlig" 0;
+  font-variant-ligatures: none;
+  outline: none;
+}
+.twrap-viewport:focus, .twrap-viewport:focus-within {
+  box-shadow: inset 0 0 0 2px rgba(120, 180, 255, 0.4);
+}
+.twrap-viewport::-webkit-scrollbar { width: 10px; }
+.twrap-viewport::-webkit-scrollbar-track { background: #0c0c0c; }
+.twrap-viewport::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
+.twrap-grid {
+  white-space: pre;
+  color: #d4d4d4;
+}
+.twrap-line { display: block; min-height: 1.2em; }
+.twrap-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.twrap-link:hover { text-decoration: underline; }
+.twrap-line.twrap-cursor-row { background: rgba(120, 180, 255, 0.10); }
+.twrap-cursor {
+  position: absolute;
+  display: none;
+  background: #d4d4d4;
+  pointer-events: none;
+  animation: twrap-cursor-blink 1.2s steps(1, end) infinite;
+}
+@keyframes twrap-cursor-blink {
+  0%, 49% { opacity: 0.6; }
+  50%, 100% { opacity: 0; }
+}
+.twrap-ime {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 1em;
+  height: 1em;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-family: var(--twrap-font);
+  font-size: 13px;
+  line-height: 1.0;
+  white-space: pre;
+  font-feature-settings: "calt" 0, "liga" 0, "dlig" 0;
+  font-variant-ligatures: none;
+}
+.twrap-ime.composing {
+  opacity: 1;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  caret-color: #d4d4d4;
+  z-index: 10;
+}
+.twrap-reconnect {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 2px 8px;
+  text-align: center;
+  font: 12px monospace;
+  background: #6a5acd;
+  color: #fff;
+  z-index: 20;
+  pointer-events: none; /* 切断中のオーバーレイがクリックを奪わない */
+}

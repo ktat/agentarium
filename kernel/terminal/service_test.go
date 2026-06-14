@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,16 +10,19 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 )
 
 // fakeBackend はテスト用の最小 Backend 実装。
 type fakeBackend struct {
-	name   string
-	starts int
-	lastID string
-	routes []plugin.Route
+	name           string
+	starts         int
+	lastID         string
+	routes         []plugin.Route
+	restoreCalled  bool
+	restoreApplied func(SessionRecord) bool
 }
 
 func (b *fakeBackend) Name() string                                            { return b.name }
@@ -32,7 +36,13 @@ func (b *fakeBackend) Stop(id string) error                     { return nil }
 func (b *fakeBackend) Inject(id, text string, enter bool) error { return nil }
 func (b *fakeBackend) SetSessionID(id, sessionID string)        {}
 func (b *fakeBackend) List() []SessionInfo                      { return nil }
-func (b *fakeBackend) Routes() []plugin.Route                   { return b.routes }
+func (b *fakeBackend) AddStateListener(l StateListener) {}
+func (b *fakeBackend) Restore(canResume func(SessionRecord) bool) (int, int) {
+	b.restoreCalled = true
+	b.restoreApplied = canResume
+	return 0, 0
+}
+func (b *fakeBackend) Routes() []plugin.Route { return b.routes }
 func (b *fakeBackend) Assets() fs.FS                            { return nil }
 
 func TestNewService_PicksActiveByName(t *testing.T) {
@@ -442,6 +452,29 @@ func TestService_HandlerStartRejectsInvalidID(t *testing.T) {
 	}
 }
 
+func TestService_EventsStreamsInitialState(t *testing.T) {
+	svc, _ := newTestService(t)
+	srv := httptest.NewServer(svc.Handler())
+	defer srv.Close()
+	req, _ := http.NewRequest("GET", srv.URL+"/terminal/events", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer res.Body.Close()
+	if ct := res.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type=%q", ct)
+	}
+	buf := make([]byte, 256)
+	n, _ := res.Body.Read(buf)
+	if !strings.Contains(string(buf[:n]), "event: state") {
+		t.Fatalf("no initial state event: %q", string(buf[:n]))
+	}
+}
+
 func TestService_MountOnIncludesBackendRoutes(t *testing.T) {
 	x := &fakeBackend{name: "xterm"}
 	x.routes = []plugin.Route{
@@ -506,5 +539,29 @@ func TestService_CloseClosesBackends(t *testing.T) {
 	}
 	if cb.closed != 2 {
 		t.Fatalf("after second Close count = %d, want 2", cb.closed)
+	}
+}
+
+func TestNewService_DrivesActiveRestore(t *testing.T) {
+	x := &fakeBackend{name: "xterm"}
+	w := &fakeBackend{name: "wrap"}
+	cr := func(SessionRecord) bool { return true }
+	_, err := NewService(ServiceConfig{
+		Agents:    NewAgentRegistry("xterm"),
+		Backends:  []Backend{x, w},
+		Active:    "wrap",
+		CanResume: cr,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if !w.restoreCalled {
+		t.Fatal("active backend (wrap) Restore was not called")
+	}
+	if w.restoreApplied == nil {
+		t.Fatal("CanResume was not passed to active backend Restore")
+	}
+	if x.restoreCalled {
+		t.Fatal("non-active backend (xterm) Restore should not be called")
 	}
 }
