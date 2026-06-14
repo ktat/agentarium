@@ -59,10 +59,14 @@ func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
 	return filepath.Join(dir, sessionID+".jsonl")
 }
 
+// claudePermission は claude の許可プロンプト検出パターン。StatePatterns は行ごと/
+// tick ごとに高頻度で呼ばれるため、正規表現はパッケージ変数に切り出して再コンパイルを避ける。
+var claudePermission = regexp.MustCompile(`(?i)do you want to proceed`)
+
 // StatePatterns は claude TUI の PTY 出力に対する状態検出パラメータ（terminal.StateAware）。
 func (claudeAgent) StatePatterns() terminal.StatePatterns {
 	return terminal.StatePatterns{
-		Permission:       regexp.MustCompile(`(?i)do you want to proceed`),
+		Permission:       claudePermission,
 		SustainedRunning: 2 * time.Second,
 		IdleTimeout:      1500 * time.Millisecond,
 		BurstGap:         time.Second,
