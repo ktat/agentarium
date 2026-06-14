@@ -134,7 +134,7 @@ func runServer() error {
 	agents := terminal.NewAgentRegistry("claude")
 	agents.Register(claudeAgent{})
 	// xterm / wrap 両 backend をコンパイルに含めて登録し、実行時に active を選ぶ。
-	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd)}
+	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd, agents)}
 	wrapBackend := &wrap.Backend{Registry: wrap.NewRegistry(wd, agents)}
 	// active backend は Settings（kernel.terminal_renderer）→ env → 既定 xterm の順で決定。
 	active := settings.TerminalRenderer(sec)

@@ -27,9 +27,15 @@ type Registry struct {
 	processes      map[string]*entry
 	sessionIndex   map[string]string // SessionID → ID の逆引き
 	workDir        string
-	store          *terminal.Store // nil なら永続化なし
+	agents         *terminal.AgentRegistry // lazy 復元が Agent 名解決に使う（nil 可）
+	store          *terminal.Store         // nil なら永続化なし
 	observer       ObserverHooks
 	stateListeners []StateListener
+	// lazy warmup 用の lifecycle（registry_lazy.go が使う）。
+	done          chan struct{}
+	closed        bool
+	warmupStarted bool
+	wg            sync.WaitGroup
 }
 
 type entry struct {
@@ -48,18 +54,21 @@ type entry struct {
 	StateSource string
 }
 
-// NewRegistry は永続化なしの Registry を返す。
-func NewRegistry(workDir string) *Registry {
-	return NewRegistryWithStore(workDir, nil)
+// NewRegistry は永続化なしの Registry を返す。agents は lazy 復元が Agent 名解決に使う
+// （復元を使わないなら nil 可）。
+func NewRegistry(workDir string, agents *terminal.AgentRegistry) *Registry {
+	return NewRegistryWithStore(workDir, agents, nil)
 }
 
 // NewRegistryWithStore は Store を伴う Registry を返す。
-func NewRegistryWithStore(workDir string, store *terminal.Store) *Registry {
+func NewRegistryWithStore(workDir string, agents *terminal.AgentRegistry, store *terminal.Store) *Registry {
 	return &Registry{
 		processes:    make(map[string]*entry),
 		sessionIndex: make(map[string]string),
 		workDir:      workDir,
+		agents:       agents,
 		store:        store,
+		done:         make(chan struct{}),
 	}
 }
 
@@ -286,6 +295,16 @@ func (r *Registry) persist() {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.persistLocked()
+}
+
+// persistLocked は r.mu 保持前提で現在の永続スナップショットを構築し store へ書く。
+// disk I/O を mu 下で行うが、呼ばれるのは復元・停止・warmup の低頻度経路に限る。
+func (r *Registry) persistLocked() {
+	if r.store == nil {
+		return
+	}
 	out := make([]terminal.SessionRecord, 0, len(r.processes))
 	for id, e := range r.processes {
 		if e.SessionID == "" {
@@ -302,7 +321,6 @@ func (r *Registry) persist() {
 			AltRows:   e.AltRows,
 		})
 	}
-	r.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	if err := r.store.Save(out); err != nil {
 		log.Printf("terminal/xterm: persist failed: %v", err)
@@ -320,9 +338,36 @@ func (r *Registry) List() []terminal.SessionInfo {
 			Label:     e.Label,
 			SessionID: e.SessionID,
 			State:     e.State,
-			Running:   e.Process.Running(),
+			Running:   e.Process != nil && e.Process.Running(),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// resolveAgent は name から Agent を解決する。name が空 / 未登録なら既定 Agent。
+// agents 未設定（nil）なら nil を返す。
+func (r *Registry) resolveAgent(name string) terminal.Agent {
+	if r.agents == nil {
+		return nil
+	}
+	if name != "" {
+		if ag := r.agents.Resolve(name); ag != nil {
+			return ag
+		}
+	}
+	return r.agents.Default()
+}
+
+// Close は warmup goroutine に終了を通知し、終了を待つ。冪等。
+func (r *Registry) Close() {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return
+	}
+	r.closed = true
+	close(r.done)
+	r.mu.Unlock()
+	r.wg.Wait()
 }

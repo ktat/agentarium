@@ -17,7 +17,7 @@ func (catAgent) Invocation(req terminal.RunRequest) (string, []string) {
 }
 
 func TestRegistry_StartGetRunning(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	p, err := r.Start("t1", "Tab 1", catAgent{}, terminal.RunRequest{})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -35,7 +35,7 @@ func TestRegistry_StartGetRunning(t *testing.T) {
 }
 
 func TestRegistry_StartReusesRunning(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	p1, _ := r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	p2, _ := r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("t1") }()
@@ -45,21 +45,21 @@ func TestRegistry_StartReusesRunning(t *testing.T) {
 }
 
 func TestRegistry_StartEmptyID(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	if _, err := r.Start("", "L", catAgent{}, terminal.RunRequest{}); err == nil {
 		t.Fatal("want error for empty id")
 	}
 }
 
 func TestRegistry_StartNilAgent(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	if _, err := r.Start("t1", "L", nil, terminal.RunRequest{}); err == nil {
 		t.Fatal("want error for nil agent")
 	}
 }
 
 func TestRegistry_ListSortedAndRunning(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("b", "B", catAgent{}, terminal.RunRequest{})
 	_, _ = r.Start("a", "A", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("a"); _ = r.Stop("b") }()
@@ -73,7 +73,7 @@ func TestRegistry_ListSortedAndRunning(t *testing.T) {
 }
 
 func TestRegistry_SetSessionIDAndIndex(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("t1") }()
 	r.SetSessionID("t1", "sess-xyz")
@@ -86,7 +86,7 @@ func TestRegistry_SetSessionIDAndIndex(t *testing.T) {
 }
 
 func TestRegistry_StateTransitionNotifiesListener(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	defer func() { _ = r.Stop("t1") }()
 	type ev struct {
@@ -109,7 +109,7 @@ func TestRegistry_StateTransitionNotifiesListener(t *testing.T) {
 }
 
 func TestRegistry_StopRemovesEntry(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	_, _ = r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	if err := r.Stop("t1"); err != nil {
 		t.Fatalf("stop: %v", err)
@@ -123,7 +123,7 @@ func TestRegistry_StopRemovesEntry(t *testing.T) {
 // cols/altRows なし。catAgent は xterm 側のテストヘルパに合わせる。
 // 既存テスト (TestRegistry_StartReusesRunning など) と同じ helper を使う。
 func TestRegistry_StopThenStartSameID_OldOnExitDoesNotRemoveNew(t *testing.T) {
-	r := NewRegistry("")
+	r := NewRegistry("", nil)
 	p1, _ := r.Start("t1", "L", catAgent{}, terminal.RunRequest{})
 	if err := r.Stop("t1"); err != nil {
 		t.Fatalf("stop1: %v", err)
@@ -144,7 +144,7 @@ func TestRegistry_StopThenStartSameID_OldOnExitDoesNotRemoveNew(t *testing.T) {
 func TestPersist_WritesSessionRecord(t *testing.T) {
 	dir := t.TempDir()
 	store := terminal.NewStore(filepath.Join(dir, "x.json"))
-	r := NewRegistryWithStore(dir, store)
+	r := NewRegistryWithStore(dir, nil, store)
 	ag := terminal.ConfigAgent{AgentName: "claude", Binary: "cat", ModelFlag: "--model"}
 	if _, err := r.Start("t1", "L1", ag, terminal.RunRequest{Model: "opus"}); err != nil {
 		t.Fatalf("Start: %v", err)

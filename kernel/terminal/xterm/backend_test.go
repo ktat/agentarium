@@ -8,7 +8,7 @@ import (
 )
 
 func newBackend() *Backend {
-	return &Backend{Registry: NewRegistry("")}
+	return &Backend{Registry: NewRegistry("", nil)}
 }
 
 func TestBackend_NameAndRenderer(t *testing.T) {
@@ -88,7 +88,7 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 // 満たすことを確認する。現状は no-op (0,0)。Phase 3 で本実装に差し替わったら、本テストは
 // 削除ではなく実復元を検証するテストへ置き換える。
 func TestBackend_Restore_ContractSatisfied(t *testing.T) {
-	b := &Backend{Registry: NewRegistry(t.TempDir())}
+	b := &Backend{Registry: NewRegistry(t.TempDir(), nil)}
 	restored, total := b.Restore(func(terminal.SessionRecord) bool { return true })
 	if restored != 0 || total != 0 {
 		t.Fatalf("xterm Restore should be no-op for now, got (%d,%d)", restored, total)
