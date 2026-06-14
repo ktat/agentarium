@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ktat/agentarium/kernel/secrets"
 )
@@ -119,7 +120,9 @@ func doReq(t *testing.T, method, url, body string, hdr http.Header) (int, string
 	if body != "" {
 		rdr = strings.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(context.Background(), method, url, rdr)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
 	if err != nil {
 		t.Fatalf("new request %s %s: %v", method, url, err)
 	}
