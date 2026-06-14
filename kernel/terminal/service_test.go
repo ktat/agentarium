@@ -8,11 +8,14 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
+	"github.com/ktat/agentarium/kernel/terminal/observer"
 )
 
 // fakeBackend はテスト用の最小 Backend 実装。
@@ -563,5 +566,120 @@ func TestNewService_DrivesActiveRestore(t *testing.T) {
 	}
 	if x.restoreCalled {
 		t.Fatal("non-active backend (xterm) Restore should not be called")
+	}
+}
+
+func TestService_DetectorDrivesStateFromOutput(t *testing.T) {
+	fb := newDetectFakeBackend("xterm")
+	fb.agentName = "claude"
+	agents := NewAgentRegistry("claude")
+	agents.Register(detectFakeAgent{})
+
+	svc, err := NewService(ServiceConfig{Agents: agents, Backends: []Backend{fb}})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	defer func() { _ = svc.Close() }()
+
+	fb.add("t1")
+	fb.obs.OnOutput("t1", []byte("Do you want to proceed?\n"))
+
+	if !waitForState(svc, "awaiting_user", time.Second) {
+		t.Fatalf("expected awaiting_user in aggregated state, got %q", svc.lastAgg)
+	}
+}
+
+type detectFakeAgent struct{}
+
+func (detectFakeAgent) Name() string                              { return "claude" }
+func (detectFakeAgent) Invocation(RunRequest) (string, []string) { return "claude", nil }
+func (detectFakeAgent) StatePatterns() StatePatterns {
+	return StatePatterns{
+		Permission:       regexp.MustCompile(`(?i)do you want to proceed`),
+		SustainedRunning: 2 * time.Second,
+		IdleTimeout:      1500 * time.Millisecond,
+		BurstGap:         time.Second,
+	}
+}
+
+type detectFakeBackend struct {
+	name      string
+	agentName string
+	obs       ObserverHooks
+	mu        sync.Mutex
+	ids       []string
+	state     map[string]SessionState
+	listeners []StateListener
+}
+
+func newDetectFakeBackend(name string) *detectFakeBackend {
+	return &detectFakeBackend{name: name, state: map[string]SessionState{}}
+}
+
+func (b *detectFakeBackend) add(id string) {
+	b.mu.Lock()
+	b.ids = append(b.ids, id)
+	b.state[id] = StateIdle
+	b.mu.Unlock()
+}
+
+func (b *detectFakeBackend) Name() string                                           { return b.name }
+func (b *detectFakeBackend) Start(id, label string, ag Agent, req RunRequest) error { return nil }
+func (b *detectFakeBackend) Stop(id string) error                                   { return nil }
+func (b *detectFakeBackend) Inject(id, text string, enter bool) error               { return nil }
+func (b *detectFakeBackend) SetSessionID(id, sessionID string)                      {}
+func (b *detectFakeBackend) AddStateListener(l StateListener) {
+	b.mu.Lock()
+	b.listeners = append(b.listeners, l)
+	b.mu.Unlock()
+}
+func (b *detectFakeBackend) Restore(func(rec SessionRecord) bool) (int, int) { return 0, 0 }
+func (b *detectFakeBackend) List() []SessionInfo {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]SessionInfo, 0, len(b.ids))
+	for _, id := range b.ids {
+		out = append(out, SessionInfo{ID: id, AgentName: b.agentName, State: b.state[id]})
+	}
+	return out
+}
+func (b *detectFakeBackend) SetState(id string, s SessionState, source string) {
+	b.mu.Lock()
+	prev := b.state[id]
+	b.state[id] = s
+	ls := append([]StateListener(nil), b.listeners...)
+	b.mu.Unlock()
+	for _, l := range ls {
+		l(id, prev, s, source)
+	}
+}
+func (b *detectFakeBackend) SetObserver(o ObserverHooks) { b.obs = o }
+func (b *detectFakeBackend) Renderer() string            { return b.name }
+func (b *detectFakeBackend) Routes() []plugin.Route      { return nil }
+func (b *detectFakeBackend) Assets() fs.FS               { return nil }
+
+func waitForState(svc *Service, want string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		svc.lastAggMu.Lock()
+		agg := svc.lastAgg
+		svc.lastAggMu.Unlock()
+		if strings.Contains(agg, want) {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+func TestForgetHook_DelegatesBoth(t *testing.T) {
+	obs := observer.New()
+	called := ""
+	h := forgetHook{Observer: obs, also: func(id string) { called = id }}
+	// ObserverHooks を満たすこと（OnInput/OnOutput/Forget）
+	var _ ObserverHooks = h
+	h.Forget("t1")
+	if called != "t1" {
+		t.Fatalf("detector forget not delegated, got %q", called)
 	}
 }
