@@ -178,9 +178,17 @@ func TestRestoreFromStore_SkipsWhenCannotResume(t *testing.T) {
 
 	r := NewRegistryWithStore("", agents, store)
 	t.Cleanup(func() { r.Close() })
-	restored, total := r.RestoreFromStore(func(rec terminal.SessionRecord) bool { return false })
+	var gotRec terminal.SessionRecord
+	restored, total := r.RestoreFromStore(func(rec terminal.SessionRecord) bool {
+		gotRec = rec
+		return false
+	})
 	if restored != 0 || total != 1 {
 		t.Fatalf("want restored=0 total=1, got restored=%d total=%d", restored, total)
+	}
+	// canResume には判定に必要なフィールドが渡ること（zero-value 退行を検知）。
+	if gotRec.ID != "t1" || gotRec.SessionID != "gone" || gotRec.Agent != "cat" {
+		t.Fatalf("canResume received wrong record: %+v", gotRec)
 	}
 	if r.Get("t1") != nil {
 		t.Fatal("entry should not be restored when canResume=false")

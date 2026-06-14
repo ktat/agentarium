@@ -89,6 +89,12 @@ func (r *Registry) EnsureStarted(id string) (*Process, bool) {
 		return p, true
 	}
 	if err := r.startPendingLocked(id, e); err != nil {
+		// errClosed（shutdown 中）は一時的失敗なので purge しない（resumable レコードを
+		// 次回起動のために残す）。それ以外（agent 解決不可・起動失敗）は永久 retry 防止で除く。
+		if errors.Is(err, errClosed) {
+			r.mu.Unlock()
+			return nil, false
+		}
 		r.removePendingLocked(id, e) // 内部で persistLocked 済み
 		r.mu.Unlock()
 		log.Printf("terminal/xterm lazy start: id=%s failed: %v", id, err)
@@ -154,6 +160,10 @@ func (r *Registry) StartNextPending() (string, bool) {
 	for _, id := range ids {
 		e := r.processes[id]
 		if err := r.startPendingLocked(id, e); err != nil {
+			if errors.Is(err, errClosed) {
+				r.mu.Unlock()
+				return "", false // shutdown 中。purge せず終了。
+			}
 			r.removePendingLocked(id, e)
 			log.Printf("terminal/xterm warmup: id=%s start failed: %v", id, err)
 			continue

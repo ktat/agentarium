@@ -94,6 +94,10 @@ func (r *Registry) EnsureStarted(id string) (*Process, string, bool) {
 		return e.Process, e.Label, true
 	}
 	if err := r.startPendingLocked(id, e); err != nil {
+		// errClosed（shutdown 中）は一時的失敗。resumable レコードを残すため purge しない。
+		if errors.Is(err, errClosed) {
+			return nil, "", false
+		}
 		log.Printf("terminal/wrap lazy start: id=%s failed: %v", id, err)
 		r.removePendingLocked(id, e)
 		return nil, "", false
@@ -160,6 +164,9 @@ func (r *Registry) StartNextPending() (string, bool) {
 	for _, id := range ids {
 		e := r.processes[id]
 		if err := r.startPendingLocked(id, e); err != nil {
+			if errors.Is(err, errClosed) {
+				return "", false // shutdown 中。purge せず終了。
+			}
 			log.Printf("terminal/wrap warmup: id=%s start failed: %v", id, err)
 			r.removePendingLocked(id, e)
 			continue

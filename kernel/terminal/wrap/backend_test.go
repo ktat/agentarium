@@ -109,6 +109,13 @@ func TestBackend_Restore_RegistersPending(t *testing.T) {
 	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
 	reg := NewRegistryWithStore(dir, agents, store)
 	t.Cleanup(reg.Close)
+	// b.Restore は warmup loop を起動する。テストが warmupInterval を跨ぐと cat が
+	// spawn されうるため、Close（loop 停止）より先に起動済みセッションを止める（LIFO）。
+	t.Cleanup(func() {
+		for _, it := range reg.List() {
+			_ = reg.Stop(it.ID)
+		}
+	})
 	b := &Backend{Registry: reg}
 
 	restored, total := b.Restore(nil)

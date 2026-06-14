@@ -116,7 +116,9 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 	binary, args := ag.Invocation(req)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if e, ok := r.processes[id]; ok && e.Process.Running() {
+	// e.Process==nil は lazy 復元の pending entry。Running() を呼ぶと nil panic に
+	// なるため明示ガードし、その場合は reuse せず下で新規起動する（Start は明示起動）。
+	if e, ok := r.processes[id]; ok && e.Process != nil && e.Process.Running() {
 		if label != "" {
 			e.Label = label
 		}
@@ -144,6 +146,15 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 	}
 	r.processes[id] = ent
 	return p, nil
+}
+
+// Has は id の entry が登録済みか返す（pending=Process未起動 も true）。
+// 副作用なしの存在チェック（WS attach で Upgrade 前の 404 判定に使う）。
+func (r *Registry) Has(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.processes[id]
+	return ok
 }
 
 // Get は id に対応する Process を返す（なければ nil）。
