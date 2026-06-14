@@ -9,9 +9,9 @@ import (
 func TestStore_SaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "terminals.json")
 	s := NewStore(path)
-	in := []RegistryEntry{
-		{ID: "a", Label: "A", SessionID: "s-a", Args: []string{"--resume", "s-a"}},
-		{ID: "b", Label: "B", SessionID: "s-b", Args: nil},
+	in := []SessionRecord{
+		{ID: "t1", Label: "L1", WorkDir: "/w", Agent: "claude", SessionID: "s1", Model: "opus", Cols: 80, AltRows: 30},
+		{ID: "t2", Label: "L2", Agent: "cat"},
 	}
 	if err := s.Save(in); err != nil {
 		t.Fatalf("save: %v", err)

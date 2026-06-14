@@ -1,19 +1,24 @@
 package terminal
 
-// RegistryEntry は永続化される 1 セッション分のレコード（xterm backend が使う）。
-// SessionID は復元の前提条件（resume 引数の元）。
-type RegistryEntry struct {
-	ID        string   `json:"id"`
-	Label     string   `json:"label"`
-	SessionID string   `json:"session_id"`
-	Args      []string `json:"args"`
+// SessionRecord は再起動越え復元の共通レコード（wrap/xterm 両 backend が使う）。
+// 起動は生 args ではなく Agent 名 + Resume 情報を保存し、復元時に Agent.Invocation で
+// 起動コマンドを再構成する（エージェント非依存・spec §A）。SessionID は resume の前提。
+type SessionRecord struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	WorkDir   string `json:"work_dir,omitempty"`
+	Agent     string `json:"agent"`
+	SessionID string `json:"session_id,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Cols      int    `json:"cols,omitempty"`
+	AltRows   int    `json:"alt_rows,omitempty"`
 }
 
-// Store は xterm backend 用の永続化ストア。JSONStore[RegistryEntry] の別名。
+// Store は再起動越え復元の永続化ストア。JSONStore[SessionRecord] の別名。
 // Load は quarantine、Save は atomic + 親 dir fsync（jsonstore.go 参照）。
-type Store = JSONStore[RegistryEntry]
+type Store = JSONStore[SessionRecord]
 
-// NewStore は xterm 用 Store を返す。
+// NewStore は SessionRecord 用 Store を返す。
 func NewStore(path string) *Store {
-	return NewJSONStore[RegistryEntry](path)
+	return NewJSONStore[SessionRecord](path)
 }
