@@ -9,8 +9,10 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/ktat/agentarium/kernel/server"
+	"github.com/ktat/agentarium/kernel/terminal/observer"
 )
 
 // 静的 interface assertion: *Service は server.Mountable を満たす
@@ -33,12 +35,13 @@ type ServiceConfig struct {
 //   - 複数 backend から active を 1 つ選び、start/stop/inject/list/renderer を提供
 //   - フロント assets と WS ルートは active backend の Routes()/Assets() を経由
 type Service struct {
-	agents     *AgentRegistry
-	backends   map[string]Backend
-	active     Backend
-	events     *sseHub
-	lastAgg    string
-	lastAggMu  sync.Mutex
+	agents    *AgentRegistry
+	backends  map[string]Backend
+	active    Backend
+	events    *sseHub
+	lastAgg   string
+	lastAggMu sync.Mutex
+	detector  *detector // nil = 状態検出無効（active backend が未対応）
 }
 
 // NewService は config から Service を構築する。
@@ -67,6 +70,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 	svc := &Service{agents: cfg.Agents, backends: backends, active: active, events: newSSEHub()}
 	active.AddStateListener(svc.onStateChange)
+	svc.wireDetector()
 	if restored, total := active.Restore(cfg.CanResume); total > 0 {
 		log.Printf("terminal: restored %d/%d session(s) on backend %q", restored, total, active.Name())
 	}
@@ -81,6 +85,9 @@ func (s *Service) Active() Backend { return s.active }
 // graceful shutdown で goroutine leak を防ぐ（R1）。Close を持たない backend
 // （xterm 等）は素通り。最初の非 nil error を返す。
 func (s *Service) Close() error {
+	if s.detector != nil {
+		s.detector.close()
+	}
 	var firstErr error
 	for _, b := range s.backends {
 		c, ok := b.(interface{ Close() error })
@@ -92,6 +99,56 @@ func (s *Service) Close() error {
 		}
 	}
 	return firstErr
+}
+
+// wireDetector は active backend が ObserverBackend かつ StateSetter のときだけ
+// PTY 状態検出を有効化する。満たさない backend では検出無効（idle 固定）。
+func (s *Service) wireDetector() {
+	ob, okObs := s.active.(ObserverBackend)
+	setter, okSet := s.active.(StateSetter)
+	if !okObs || !okSet {
+		return
+	}
+	obs := observer.New()
+	d := newDetector(setter, s.currentStates, s.patternsForTerminal, time.Now)
+	d.register(obs)
+	ob.SetObserver(obs)
+	d.start()
+	s.detector = d
+}
+
+// currentStates は active backend の List から id→state マップを作る。
+func (s *Service) currentStates() map[string]SessionState {
+	items := s.active.List()
+	out := make(map[string]SessionState, len(items))
+	for _, it := range items {
+		out[it.ID] = it.State
+	}
+	return out
+}
+
+// patternsForTerminal は terminal id → agent → StatePatterns を解決する。
+// agent が StateAware 非実装、または id が未知なら (zero,false)。
+func (s *Service) patternsForTerminal(id string) (StatePatterns, bool) {
+	if s.agents == nil {
+		return StatePatterns{}, false
+	}
+	var name string
+	for _, it := range s.active.List() {
+		if it.ID == id {
+			name = it.AgentName
+			break
+		}
+	}
+	if name == "" {
+		return StatePatterns{}, false
+	}
+	ag := s.agents.Resolve(name)
+	sa, ok := ag.(StateAware)
+	if !ok {
+		return StatePatterns{}, false
+	}
+	return sa.StatePatterns(), true
 }
 
 // Agents は agent レジストリを返す（拡張用の脱出口）。
