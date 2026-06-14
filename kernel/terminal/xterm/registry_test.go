@@ -144,7 +144,7 @@ func TestRegistry_StopThenStartSameID_OldOnExitDoesNotRemoveNew(t *testing.T) {
 func TestPersist_WritesSessionRecord(t *testing.T) {
 	dir := t.TempDir()
 	store := terminal.NewStore(filepath.Join(dir, "x.json"))
-	r := NewRegistryWithStore(t.TempDir(), store)
+	r := NewRegistryWithStore(dir, store)
 	ag := terminal.ConfigAgent{AgentName: "claude", Binary: "cat", ModelFlag: "--model"}
 	if _, err := r.Start("t1", "L1", ag, terminal.RunRequest{Model: "opus"}); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -161,5 +161,8 @@ func TestPersist_WritesSessionRecord(t *testing.T) {
 	got := recs[0]
 	if got.Agent != "claude" || got.Model != "opus" || got.SessionID != "s1" || got.Label != "L1" {
 		t.Fatalf("record missing fields: %+v", got)
+	}
+	if got.WorkDir != dir {
+		t.Fatalf("WorkDir not wired: want %q, got %q", dir, got.WorkDir)
 	}
 }

@@ -22,6 +22,8 @@ func toStoreEntry(id string, e *entry) StoreEntry {
 
 // newEntryFromStore は StoreEntry から entry の永続フィールドを埋めて返す
 // （StoreEntry→entry の唯一の写像）。Process / State 系は復元方式ごとに呼び出し側が設定する。
+// workDir は呼び出し側で解決済みの値を渡す（e.WorkDir を直接使わない。非 lazy 経路が
+// NewProcess 用に同値を必要とするため、fallback はここに置かない）。
 func newEntryFromStore(e StoreEntry, workDir string) *entry {
 	return &entry{
 		Label:     e.Label,

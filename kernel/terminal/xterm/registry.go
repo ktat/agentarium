@@ -33,12 +33,14 @@ type Registry struct {
 }
 
 type entry struct {
-	Process     *Process
-	Label       string
-	AgentName   string
-	WorkDir     string
-	Model       string
-	SessionID   string
+	Process   *Process
+	Label     string
+	AgentName string
+	WorkDir   string
+	Model     string
+	SessionID string
+	// Cols/AltRows: 現状 xterm の Start は cols/altRows を受け取らないため常に 0。
+	// TODO(restore): xterm 復元実装時に初期サイズを捕捉する（Phase 3）。
 	Cols        int
 	AltRows     int
 	State       terminal.SessionState
