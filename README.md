@@ -195,6 +195,18 @@ backend は 2 種類:
 - `xterm`: 生 PTY バイト + xterm.js
 - `wrap`: サーバ側 VT エミュレータ（行差分を JSON で送出）
 
+### 状態検出（Pet 連携）
+
+Agent ターミナルの PTY 出力を観測し、セッション状態（`running` / `awaiting_user` / `idle`）を
+判定して `/terminal/events` SSE に配信する。判定パターンは **Agent プロファイルが所有**する
+（`terminal.StateAware` を実装した Agent のみ対象。未実装の Agent は `idle` 固定）。
+
+- 出力が一定時間継続 → `running`
+- 許可プロンプト（claude は `do you want to proceed`）→ `awaiting_user`
+- 一定時間沈黙 → `idle` 降格（`awaiting_user` は時間では降格しない）
+
+この状態が外部 Pet バイナリの表情にマップされる。
+
 ### セッション復元（再起動越え）
 
 `NewRegistryWithStore` で Store を渡すと、開いていた Agent ターミナルを再起動越しに復元します。
