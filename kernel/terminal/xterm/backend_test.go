@@ -84,7 +84,10 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 	}
 }
 
-func TestBackend_Restore_NoopForNow(t *testing.T) {
+// TestBackend_Restore_ContractSatisfied は xterm が TerminalBackend.Restore 契約を
+// 満たすことを確認する。現状は no-op (0,0)。Phase 3 で本実装に差し替わったら、本テストは
+// 削除ではなく実復元を検証するテストへ置き換える。
+func TestBackend_Restore_ContractSatisfied(t *testing.T) {
 	b := &Backend{Registry: NewRegistry(t.TempDir())}
 	restored, total := b.Restore(func(terminal.SessionRecord) bool { return true })
 	if restored != 0 || total != 0 {

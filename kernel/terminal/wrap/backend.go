@@ -74,6 +74,7 @@ func (b *Backend) Close() error {
 
 // warmupInterval は Restore 後の lazy warmup が pending entry を 1 件ずつ起動する間隔。
 // 復元コストを時間軸に分散する（registry_lazy.go の StartLazyWarmupLoop 参照）。
+// 現状は固定値。消費者が調整したくなったら ServiceConfig 等に逃がす（YAGNI のため今は定数）。
 const warmupInterval = 2 * time.Second
 
 // Restore は store の永続レコードを lazy 復元（pending 登録）し、warmup loop を起動する。
