@@ -32,23 +32,56 @@ export async function render(root, ctx) {
   term.open(termDiv);
   if (fit) fit.fit();
 
-  // 3) WS 接続
+  // 3) WS 接続（自動再接続つき）
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(wsProto + '//' + location.host + '/terminal/ws?id=' + encodeURIComponent(ctx.id));
+  let ws;
   let resolveReady;
   const ready = new Promise((res) => { resolveReady = res; });
-  ws.onmessage = (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch (e) { return; }
-    if (msg.type === 'output') {
-      term.write(msg.data);
-    }
-  };
-  ws.onopen = () => {
-    if (fit) fit.fit();
-    sendResize();
-    resolveReady && resolveReady();
-  };
+
+  // 再接続バナー（切断中だけ表示）。root を基準に上部固定。
+  if (!root.style.position) root.style.position = 'relative';
+  const banner = document.createElement('div');
+  banner.textContent = '再接続中…';
+  Object.assign(banner.style, {
+    position: 'absolute', top: '0', left: '0', right: '0', padding: '2px 8px',
+    textAlign: 'center', font: '12px monospace', background: '#6a5acd', color: '#fff',
+    zIndex: '20', display: 'none',
+  });
+  root.appendChild(banner);
+
+  // 再接続: 指数バックオフ（RECONNECT_BASE→RECONNECT_MAX）。close() で userClosed=true にして止める。
+  const RECONNECT_BASE = 500, RECONNECT_MAX = 5000;
+  let reconnectAttempt = 0, reconnectTimer = 0, userClosed = false, firstConnect = true;
+
+  function scheduleReconnect() {
+    if (userClosed) return;
+    banner.style.display = '';
+    const delay = Math.min(RECONNECT_BASE * Math.pow(2, reconnectAttempt), RECONNECT_MAX);
+    reconnectAttempt++;
+    reconnectTimer = setTimeout(connect, delay);
+  }
+
+  function connect() {
+    ws = new WebSocket(wsProto + '//' + location.host + '/terminal/ws?id=' + encodeURIComponent(ctx.id));
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type === 'output') term.write(msg.data);
+    };
+    ws.onopen = () => {
+      // 再接続時はサーバが ReplayBuffer を再送するため、端末をクリアしてから受ける（重複回避）。
+      if (!firstConnect) term.reset();
+      firstConnect = false;
+      reconnectAttempt = 0;
+      banner.style.display = 'none';
+      if (fit) fit.fit();
+      sendResize();
+      resolveReady && resolveReady();
+    };
+    ws.onclose = () => { scheduleReconnect(); };
+    ws.onerror = () => { try { ws.close(); } catch (_) {} }; // close → onclose → scheduleReconnect
+  }
+  connect();
 
   // 4) クライアント入力 → WS
   term.onData((data) => {
@@ -69,7 +102,9 @@ export async function render(root, ctx) {
   // 6) クリーンアップ用に返す
   return {
     close() {
-      try { ws.close(); } catch (_) {}
+      userClosed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { ws && ws.close(); } catch (_) {}
       ro.disconnect();
       term.dispose();
     },
