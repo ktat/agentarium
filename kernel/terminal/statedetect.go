@@ -59,15 +59,9 @@ func (d *detector) onLine(id, line string) {
 	}
 	now := d.now()
 	d.mu.Lock()
-	_, seen := d.lastOutput[id]
-	if !seen {
-		// 初出力: burst 開始を記録
-		d.firstOutputAt[id] = now
-	}
-	// BurstGap を超えた沈黙の後に出力が再開した場合も burst 開始をリセット。
-	// ただし tick() が idle 判定済み（ptyRunning=false かつ firstOutputAt 削除済み）なら
-	// 既にリセット済みなので、firstOutputAt が存在しない場合のみ再設定する。
-	if _, hasFOA := d.firstOutputAt[id]; !hasFOA {
+	last, seen := d.lastOutput[id]
+	if !seen || now.Sub(last) > pat.BurstGap {
+		// 初出力、または BurstGap を超える沈黙後の出力 → 新しい burst の開始
 		d.firstOutputAt[id] = now
 	}
 	d.lastOutput[id] = now

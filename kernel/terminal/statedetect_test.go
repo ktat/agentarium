@@ -63,10 +63,15 @@ func TestDetector_SustainedBurstSetsRunning(t *testing.T) {
 	f := newFakeSetter()
 	now := time.Unix(100, 0)
 	d := newTestDetector(f, &now)
-	d.onLine("t1", "working...")
-	now = now.Add(2100 * time.Millisecond)
-	d.onLine("t1", "still working")
-	d.tick()
+	// 連続出力（各ギャップ 0.8s < BurstGap=1s）を 2s 以上継続させる
+	d.onLine("t1", "l1") // first=100
+	now = now.Add(800 * time.Millisecond)
+	d.onLine("t1", "l2")
+	now = now.Add(800 * time.Millisecond)
+	d.onLine("t1", "l3")
+	now = now.Add(800 * time.Millisecond) // now=102.4, first 保持=100, span=2.4s
+	d.onLine("t1", "l4")
+	d.tick() // 2.4 >= SustainedRunning(2s) → running
 	if f.snapshot()["t1"] != StateRunning {
 		t.Fatalf("want running, got %v", f.snapshot()["t1"])
 	}
@@ -76,14 +81,38 @@ func TestDetector_SilenceDemotesRunningToIdle(t *testing.T) {
 	f := newFakeSetter()
 	now := time.Unix(200, 0)
 	d := newTestDetector(f, &now)
-	d.onLine("t1", "x")
-	now = now.Add(2100 * time.Millisecond)
-	d.onLine("t1", "y")
-	d.tick()
-	now = now.Add(1600 * time.Millisecond)
+	// まず連続 burst で running にする
+	d.onLine("t1", "l1") // first=200
+	now = now.Add(800 * time.Millisecond)
+	d.onLine("t1", "l2")
+	now = now.Add(800 * time.Millisecond)
+	d.onLine("t1", "l3")
+	now = now.Add(800 * time.Millisecond) // now=202.4
+	d.onLine("t1", "l4")
+	d.tick() // running
+	if f.snapshot()["t1"] != StateRunning {
+		t.Fatalf("setup: want running first, got %v", f.snapshot()["t1"])
+	}
+	// 沈黙させて idle 降格
+	now = now.Add(1600 * time.Millisecond) // silent 1.6s > IdleTimeout(1.5s)
 	d.tick()
 	if f.snapshot()["t1"] != StateIdle {
 		t.Fatalf("want idle, got %v", f.snapshot()["t1"])
+	}
+}
+
+func TestDetector_IntermittentOutputDoesNotRun(t *testing.T) {
+	f := newFakeSetter()
+	now := time.Unix(400, 0)
+	d := newTestDetector(f, &now)
+	// BurstGap(1s) を超えるギャップの散発出力 → 毎回 burst リセット → 決して running にならない
+	for i := 0; i < 5; i++ {
+		d.onLine("t1", "tick")
+		now = now.Add(1200 * time.Millisecond) // gap 1.2s > BurstGap
+		d.tick()
+	}
+	if f.snapshot()["t1"] == StateRunning {
+		t.Fatalf("intermittent output must not be running")
 	}
 }
 
