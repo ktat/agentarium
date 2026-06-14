@@ -51,9 +51,9 @@ func (p Plugin) handleStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load chat store", http.StatusInternalServerError)
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	id := "chat-" + strconv.FormatInt(now.UnixNano(), 10)
-	recs = append(recs, ChatRecord{ID: id, Summary: summary, StartedAt: now.Format(time.RFC3339)})
+	recs = append(recs, ChatRecord{ID: id, Summary: summary, StartedAt: now.Format(time.RFC3339Nano)})
 	if err := p.store.Save(recs); err != nil {
 		log.Printf("plugins/chat: save: %v", err)
 		http.Error(w, "failed to save chat store", http.StatusInternalServerError)
@@ -76,7 +76,7 @@ func (p Plugin) handleList(w http.ResponseWriter, r *http.Request) {
 	if recs == nil {
 		recs = []ChatRecord{}
 	}
-	sort.SliceStable(recs, func(i, j int) bool { return recs[i].StartedAt > recs[j].StartedAt })
+	sort.SliceStable(recs, func(i, j int) bool { return recs[i].StartedAt > recs[j].StartedAt }) // UTC+RFC3339Nano なので文字列比較で時系列降順になる
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"items": recs})
 }
@@ -95,15 +95,20 @@ func (p Plugin) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleArchive は POST /plugins/chat/archive?id= でレコードを archive する。
+// handleArchive は POST /plugins/chat/archive?id= でレコードの archive 状態をトグルする
+// （未archive→archive、archive済み→解除）。フロントの「archive / 戻す」ボタンに対応。
 func (p Plugin) handleArchive(w http.ResponseWriter, r *http.Request) {
 	if !server.IsLocalOriginOrAbsent(r) {
 		http.Error(w, "cross-origin request rejected", http.StatusForbidden)
 		return
 	}
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	p.mutate(w, r.URL.Query().Get("id"), func(rec *ChatRecord) {
-		rec.ArchivedAt = now
+		if rec.ArchivedAt == "" {
+			rec.ArchivedAt = now
+		} else {
+			rec.ArchivedAt = ""
+		}
 	})
 }
 

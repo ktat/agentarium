@@ -102,9 +102,10 @@ export async function render(root) {
         const data = await res.json();
         const row = (data.items || []).find(it => it.ID === id);
         if (row && row.SessionID) {
-          clearInterval(timer);
-          await fetch('/plugins/chat/update?id=' + encodeURIComponent(id) +
+          const upd = await fetch('/plugins/chat/update?id=' + encodeURIComponent(id) +
             '&session_id=' + encodeURIComponent(row.SessionID), { method: 'POST' });
+          if (!upd.ok) return; // 更新失敗時は clearInterval せず次の tick で再試行（tries 上限まで）
+          clearInterval(timer);
           refreshHistory();
         }
       } catch (_) {}

@@ -36,7 +36,7 @@ func main() {
 go run ./cmd/agentarium
 ```
 
-`cmd/agentarium` は hello + sessions + chat プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
+`cmd/agentarium` は hello + sessions + chat + manifest プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
 
 ### 環境変数
 

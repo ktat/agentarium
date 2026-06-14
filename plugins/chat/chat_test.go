@@ -36,7 +36,9 @@ func TestPlugin_AssetsHasIndexJS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("index.js missing: %v", err)
 	}
-	b.Close()
+	if err := b.Close(); err != nil {
+		t.Fatalf("close index.js: %v", err)
+	}
 }
 
 // routeOf は指定 method/path のハンドラを返す。
@@ -194,5 +196,29 @@ func TestStartIDIsValidTerminalID(t *testing.T) {
 	id := seedOne(t, p, "hello")
 	if _, err := terminal.NewTerminalID(id); err != nil {
 		t.Fatalf("minted chat id %q is not a valid terminal id: %v", id, err)
+	}
+}
+
+func TestArchiveTogglesOff(t *testing.T) {
+	p := newTestPlugin(t)
+	id := seedOne(t, p, "hi")
+	arch := routeOf(t, p, "POST", "/archive")
+
+	rec := httptest.NewRecorder()
+	arch(rec, httptest.NewRequest("POST", "/archive?id="+id, nil))
+	if rec.Code != 204 {
+		t.Fatalf("first archive status %d", rec.Code)
+	}
+	if listItems(t, p)[0].ArchivedAt == "" {
+		t.Fatal("first archive should set ArchivedAt")
+	}
+
+	rec = httptest.NewRecorder()
+	arch(rec, httptest.NewRequest("POST", "/archive?id="+id, nil))
+	if rec.Code != 204 {
+		t.Fatalf("second archive status %d", rec.Code)
+	}
+	if listItems(t, p)[0].ArchivedAt != "" {
+		t.Fatal("second archive should clear ArchivedAt (toggle off)")
 	}
 }

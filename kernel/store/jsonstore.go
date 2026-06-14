@@ -68,6 +68,18 @@ func (s *JSONStore[T]) Save(entries []T) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
+	// temp ファイル自体を fsync してから rename（rename 後に中身が失われる/切り詰められるのを防ぐ）。
+	tf, err := os.Open(tmp)
+	if err != nil {
+		return err
+	}
+	if err := tf.Sync(); err != nil {
+		_ = tf.Close()
+		return err
+	}
+	if err := tf.Close(); err != nil {
+		return err
+	}
 	if err := os.Rename(tmp, s.path); err != nil {
 		return err
 	}
