@@ -1,6 +1,7 @@
 package pet
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -80,41 +81,64 @@ func TestRoutes_ConfigSkinsLaunchStatus(t *testing.T) {
 	defer srv.Close()
 
 	// /pet/skins
-	res, _ := http.Get(srv.URL + "/pet/skins")
-	if res.StatusCode != 200 {
-		t.Fatalf("skins status %d", res.StatusCode)
+	status, b := doReq(t, http.MethodGet, srv.URL+"/pet/skins", "", nil)
+	if status != 200 {
+		t.Fatalf("skins status %d", status)
 	}
-	b, _ := io.ReadAll(res.Body)
-	res.Body.Close()
-	if !strings.Contains(string(b), "default") {
+	if !strings.Contains(b, "default") {
 		t.Fatalf("skins body %s", b)
 	}
 
 	// /pet/status
-	res2, _ := http.Get(srv.URL + "/pet/status")
-	b2, _ := io.ReadAll(res2.Body)
-	res2.Body.Close()
-	if !strings.Contains(string(b2), `"subscriber_count":3`) {
+	_, b2 := doReq(t, http.MethodGet, srv.URL+"/pet/status", "", nil)
+	if !strings.Contains(b2, `"subscriber_count":3`) {
 		t.Fatalf("status body %s", b2)
 	}
 
 	// /pet/config POST then GET
 	bin := fakePetBin(t)
-	_, _ = http.Post(srv.URL+"/pet/config", "application/json",
-		strings.NewReader(`{"binary":"`+bin+`","skin":"dark","autostart":true}`))
-	res3, _ := http.Get(srv.URL + "/pet/config")
-	b3, _ := io.ReadAll(res3.Body)
-	res3.Body.Close()
-	if !strings.Contains(string(b3), `"skin":"dark"`) || !strings.Contains(string(b3), `"autostart":true`) {
+	doReq(t, http.MethodPost, srv.URL+"/pet/config",
+		`{"binary":"`+bin+`","skin":"dark","autostart":true}`, nil)
+	_, b3 := doReq(t, http.MethodGet, srv.URL+"/pet/config", "", nil)
+	if !strings.Contains(b3, `"skin":"dark"`) || !strings.Contains(b3, `"autostart":true`) {
 		t.Fatalf("config body %s", b3)
 	}
 
 	// cross-origin POST /pet/launch → 403
-	req, _ := http.NewRequest("POST", srv.URL+"/pet/launch", nil)
-	req.Header.Set("Origin", "https://evil.example")
-	r4, _ := http.DefaultClient.Do(req)
-	r4.Body.Close()
-	if r4.StatusCode != 403 {
-		t.Fatalf("cross-origin launch status %d want 403", r4.StatusCode)
+	status4, _ := doReq(t, http.MethodPost, srv.URL+"/pet/launch", "",
+		http.Header{"Origin": {"https://evil.example"}})
+	if status4 != 403 {
+		t.Fatalf("cross-origin launch status %d want 403", status4)
 	}
+}
+
+// doReq は body を必ず閉じ、エラーは t.Fatal にする HTTP ヘルパ（noctx/bodyclose 対策）。
+func doReq(t *testing.T, method, url, body string, hdr http.Header) (int, string) {
+	t.Helper()
+	var rdr io.Reader
+	if body != "" {
+		rdr = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), method, url, rdr)
+	if err != nil {
+		t.Fatalf("new request %s %s: %v", method, url, err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, vs := range hdr {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do %s %s: %v", method, url, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body %s %s: %v", method, url, err)
+	}
+	return res.StatusCode, string(b)
 }

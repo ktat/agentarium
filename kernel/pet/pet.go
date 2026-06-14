@@ -84,16 +84,23 @@ func (s *Supervisor) Launch(addr string) (string, error) {
 		args = append(args, "--skin", sk)
 	}
 	cmd := exec.Command(bin, args...)
+	var logFile *os.File
 	if lp := logPath(); lp != "" {
 		_ = os.MkdirAll(filepath.Dir(lp), 0o700)
 		if f, err := os.OpenFile(lp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
-			fmt.Fprintf(f, "\n=== pet launched %s (bin=%s addr=%s skin=%s) ===\n",
+			_, _ = fmt.Fprintf(f, "\n=== pet launched %s (bin=%s addr=%s skin=%s) ===\n",
 				time.Now().Format(time.RFC3339), bin, addr, s.skin())
 			cmd.Stdout = f
 			cmd.Stderr = f
+			logFile = f
 		}
 	}
-	if err := cmd.Start(); err != nil {
+	err := cmd.Start()
+	// 子は cmd.Start() で fd を継承済み。親側の fd はここで閉じてリークを防ぐ。
+	if logFile != nil {
+		_ = logFile.Close()
+	}
+	if err != nil {
 		return "", fmt.Errorf("pet: launch failed: %w", err)
 	}
 	if cmd.Process != nil {
@@ -146,6 +153,10 @@ func (s *Supervisor) handleConfigSet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Supervisor) handleSkins(w http.ResponseWriter, r *http.Request) {
+	if !server.IsLocalOriginOrAbsent(r) {
+		http.Error(w, "cross-origin rejected", http.StatusForbidden)
+		return
+	}
 	skins, err := s.ListSkins()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -157,6 +168,10 @@ func (s *Supervisor) handleSkins(w http.ResponseWriter, r *http.Request) {
 func (s *Supervisor) handleLaunch(w http.ResponseWriter, r *http.Request) {
 	if !server.IsLocalOriginOrAbsent(r) {
 		http.Error(w, "cross-origin rejected", http.StatusForbidden)
+		return
+	}
+	if s.addr == "" {
+		http.Error(w, "pet: server address unknown (App.Run not used)", http.StatusServiceUnavailable)
 		return
 	}
 	bin, err := s.Launch(s.addr)

@@ -48,7 +48,12 @@ async function main() {
 async function focusFromHash() {
   const m = /^#term=(.+)$/.exec(location.hash || '');
   if (!m) return;
-  const id = decodeURIComponent(m[1]);
+  let id;
+  try {
+    id = decodeURIComponent(m[1]);
+  } catch (_) {
+    return; // 不正な % エスケープ等は無視（main() を中断させない）
+  }
   let label = id;
   try {
     const res = await fetch('/terminal/list');

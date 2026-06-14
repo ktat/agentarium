@@ -99,29 +99,36 @@ func (a *App) Run(addr string) error {
 	if err := validateAddrLoopback(addr); err != nil {
 		return err
 	}
+	h, err := a.Handler()
+	if err != nil {
+		return err
+	}
+	// 先に bind してから pet を起動する。bind 失敗時に pet を起動しない/
+	// :0 等の動的ポートでも実際にバインドされた addr を pet へ渡すため。
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	boundAddr := ln.Addr().String()
 	if a.pet != nil {
-		a.pet.SetAddr(addr)
+		a.pet.SetAddr(boundAddr)
 		if a.pet.Autostart() {
 			go func() {
-				if _, err := a.pet.Launch(addr); err != nil {
+				if _, err := a.pet.Launch(boundAddr); err != nil {
 					log.Printf("pet auto-launch skipped: %v", err)
 				}
 			}()
 		}
 	}
-	h, err := a.Handler()
-	if err != nil {
-		return err
-	}
 	srv := &http.Server{
-		Addr:              addr,
+		Addr:              boundAddr,
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second, // slowloris 緩和
 	}
 	a.mu.Lock()
 	a.srv = srv
 	a.mu.Unlock()
-	return srv.ListenAndServe()
+	return srv.Serve(ln)
 }
 
 // Shutdown は Run で起動した http.Server を graceful に停止し、続けて
