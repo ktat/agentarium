@@ -579,7 +579,7 @@ func TestService_DetectorDrivesStateFromOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	fb.add("t1")
 	fb.obs.OnOutput("t1", []byte("Do you want to proceed?\n"))
