@@ -195,6 +195,18 @@ backend は 2 種類:
 - `xterm`: 生 PTY バイト + xterm.js
 - `wrap`: サーバ側 VT エミュレータ（行差分を JSON で送出）
 
+### セッション復元（再起動越え）
+
+`NewRegistryWithStore` で Store を渡すと、開いていた Agent ターミナルを再起動越しに復元します。
+プロセス自体は引き継がず、**Agent のセッション（`claude --resume <id>`）として論理復元**します。
+
+- 保存先（参照デモ）: `<os.UserConfigDir>/agentarium/terminal-<renderer>.json`（renderer 別）
+- 復元は lazy: 起動時は pending 登録のみ、タブを開く（WS 接続）と起動。warmup が低頻度で残りを起動
+- 復元可否は `terminal.ResumableAgent.ResumeArtifact` が示すファイルの存在で判定（claude なら jsonl）。
+  消費者は `ServiceConfig.CanResume` に判定関数を渡す（参照デモは `sessions.CanResume` を使用）
+- フロント（xterm/wrap 両 renderer）は WS 切断時に自動再接続（指数バックオフ + 「再接続中…」表示）。
+  サーバ再起動後に手動リロードなしで復元セッションへ繋ぎ直る
+
 ## examples
 
 | ディレクトリ | 説明 |
