@@ -166,3 +166,51 @@ func TestPersist_WritesSessionRecord(t *testing.T) {
 		t.Fatalf("WorkDir not wired: want %q, got %q", dir, got.WorkDir)
 	}
 }
+
+func TestRestoreFromStoreLazy_RegistersPendingXterm(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	r := NewRegistryWithStore(dir, agents, store)
+	t.Cleanup(r.Close)
+
+	pending, total := r.RestoreFromStoreLazy(nil)
+	if pending != 1 || total != 1 {
+		t.Fatalf("want (1,1), got (%d,%d)", pending, total)
+	}
+	items := r.List()
+	if len(items) != 1 || items[0].Running {
+		t.Fatalf("want 1 pending (Running=false), got %+v", items)
+	}
+	// EnsureStarted で pending が起動する。
+	p, ok := r.EnsureStarted("t1")
+	if !ok || p == nil || !p.Running() {
+		t.Fatalf("EnsureStarted did not start pending: ok=%v", ok)
+	}
+	t.Cleanup(func() { _ = p.Stop() })
+}
+
+func TestRestoreFromStoreLazy_SkipsWhenCannotResumeXterm(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", SessionID: "s1", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	r := NewRegistryWithStore(dir, agents, store)
+	t.Cleanup(r.Close)
+
+	pending, total := r.RestoreFromStoreLazy(func(terminal.SessionRecord) bool { return false })
+	if pending != 0 || total != 1 {
+		t.Fatalf("want (0,1) when cannot resume, got (%d,%d)", pending, total)
+	}
+}
