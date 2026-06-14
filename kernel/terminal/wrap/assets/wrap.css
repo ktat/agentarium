@@ -81,3 +81,15 @@
   caret-color: #d4d4d4;
   z-index: 10;
 }
+.twrap-reconnect {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 2px 8px;
+  text-align: center;
+  font: 12px monospace;
+  background: #6a5acd;
+  color: #fff;
+  z-index: 20;
+}

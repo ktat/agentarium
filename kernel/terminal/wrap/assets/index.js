@@ -457,17 +457,52 @@ export async function render(root, ctx) {
 
   let resolveReady;
   const ready = new Promise((res) => { resolveReady = res; });
-  const ws = new WebSocket(wsUrl(id));
-  entry.ws = ws;
-  ws.onopen = () => {
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => sendResize());
-    else sendResize();
-    resolveReady && resolveReady();
-  };
-  ws.onmessage = (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; } applyMessage(msg); };
+
+  // 再接続バナー（切断中だけ表示）。
+  const banner = document.createElement('div');
+  banner.className = 'twrap-reconnect';
+  banner.textContent = '再接続中…';
+  banner.style.display = 'none';
+  root.appendChild(banner);
+
+  // 再接続: 指数バックオフ（RECONNECT_BASE→RECONNECT_MAX）。close() で userClosed=true にして止める。
+  const RECONNECT_BASE = 500, RECONNECT_MAX = 5000;
+  let reconnectAttempt = 0, reconnectTimer = 0, userClosed = false;
+
+  function scheduleReconnect() {
+    if (userClosed) return;
+    banner.style.display = '';
+    const delay = Math.min(RECONNECT_BASE * Math.pow(2, reconnectAttempt), RECONNECT_MAX);
+    reconnectAttempt++;
+    reconnectTimer = setTimeout(connect, delay);
+  }
+
+  function connect() {
+    const ws = new WebSocket(wsUrl(id));
+    entry.ws = ws;
+    ws.onopen = () => {
+      reconnectAttempt = 0;
+      banner.style.display = 'none';
+      // 再接続後はサーバが init snapshot を送り applyMessage('init') が grid を
+      // クリア再構築するため、ここでの明示クリアは不要。
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => sendResize());
+      else sendResize();
+      resolveReady && resolveReady();
+    };
+    ws.onmessage = (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; } applyMessage(msg); };
+    ws.onclose = () => { scheduleReconnect(); };
+    ws.onerror = () => { try { ws.close(); } catch (_) {} }; // close → onclose → scheduleReconnect
+  }
+
+  connect();
 
   return {
-    close() { try { ws.close(); } catch (_) {} try { ro.disconnect(); } catch (_) {} },
+    close() {
+      userClosed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { entry.ws && entry.ws.close(); } catch (_) {}
+      try { ro.disconnect(); } catch (_) {}
+    },
     ready,
   };
 }
