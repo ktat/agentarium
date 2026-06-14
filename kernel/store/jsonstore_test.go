@@ -1,4 +1,4 @@
-package terminal
+package store
 
 import (
 	"os"
@@ -14,7 +14,7 @@ type jsTestEntry struct {
 
 func TestJSONStore_SaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "data.json")
-	s := NewJSONStore[jsTestEntry](path)
+	s := New[jsTestEntry](path)
 	in := []jsTestEntry{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}}
 	if err := s.Save(in); err != nil {
 		t.Fatalf("save: %v", err)
@@ -29,7 +29,7 @@ func TestJSONStore_SaveLoadRoundTrip(t *testing.T) {
 }
 
 func TestJSONStore_LoadMissingReturnsNil(t *testing.T) {
-	s := NewJSONStore[jsTestEntry](filepath.Join(t.TempDir(), "nope.json"))
+	s := New[jsTestEntry](filepath.Join(t.TempDir(), "nope.json"))
 	got, err := s.Load()
 	if err != nil {
 		t.Fatalf("load missing: %v", err)
@@ -45,7 +45,7 @@ func TestJSONStore_LoadCorruptQuarantines(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{bad json"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	s := NewJSONStore[jsTestEntry](path)
+	s := New[jsTestEntry](path)
 	got, err := s.Load()
 	if err != nil {
 		t.Fatalf("corrupt load should not error (quarantine): %v", err)
@@ -62,13 +62,12 @@ func TestJSONStore_LoadCorruptQuarantines(t *testing.T) {
 }
 
 func TestJSONStore_SaveDurableAfterReopen(t *testing.T) {
-	// Save → 別 Store インスタンスで Load して同一内容が読めること（atomic write 確認）。
 	path := filepath.Join(t.TempDir(), "data.json")
 	in := []jsTestEntry{{ID: "x", Name: "X"}}
-	if err := NewJSONStore[jsTestEntry](path).Save(in); err != nil {
+	if err := New[jsTestEntry](path).Save(in); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	got, err := NewJSONStore[jsTestEntry](path).Load()
+	got, err := New[jsTestEntry](path).Load()
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

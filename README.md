@@ -26,7 +26,9 @@ func main() {
 }
 ```
 
-ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `Handler` / `Run` / `Shutdown`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal`）の両方が public です。
+ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `Handler` / `Run` / `Shutdown`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal` / `kernel/store`）の両方が public です。
+
+`kernel/store` は `[]T` を JSON ファイルへ atomic に永続化する汎用ストア（`store.New[T](path)`）で、プラグインが小さな状態を保存するのに使えます（消費者 main が plugin ごとに別パスを渡す）。
 
 ## 実行（参照デモ）
 
@@ -34,7 +36,7 @@ func main() {
 go run ./cmd/agentarium
 ```
 
-`cmd/agentarium` は hello + sessions プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
+`cmd/agentarium` は hello + sessions + chat + manifest プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
 
 ### 環境変数
 
@@ -184,6 +186,7 @@ data: {"sessions":[{"id":"t1","label":"...","state":"running"}],"counts":{"idle"
 | プラグイン | 説明 |
 |---|---|
 | `plugins/sessions` | `~/.claude/projects/<workdir>` の claude セッション一覧 + Resume |
+| `plugins/chat` | 自由入力テキストを既定エージェントの初期入力として起動 + chat 履歴の一覧/再開/archive。ルート `/plugins/chat/{start,list,update,archive}`、保存先 `<os.UserConfigDir>/agentarium/chat.json` |
 | `plugins/hello` | 最小リファレンスプラグイン（Settings dogfood 付き） |
 
 ## Agent ターミナル
