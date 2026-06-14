@@ -7,15 +7,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/server"
 )
-
-// mu は store への read-modify-write を直列化する（list 連打 + start の競合回避）。
-var mu sync.Mutex
 
 func (p Plugin) Routes() []plugin.Route {
 	return []plugin.Route{
@@ -47,8 +43,8 @@ func (p Plugin) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	recs, err := p.store.Load()
 	if err != nil {
 		log.Printf("plugins/chat: load: %v", err)
@@ -69,13 +65,16 @@ func (p Plugin) handleStart(w http.ResponseWriter, r *http.Request) {
 
 // handleList は GET /plugins/chat/list。レコードを新しい順で返す。
 func (p Plugin) handleList(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
+	p.mu.Lock()
 	recs, err := p.store.Load()
-	mu.Unlock()
+	p.mu.Unlock()
 	if err != nil {
 		log.Printf("plugins/chat: load: %v", err)
 		http.Error(w, "failed to load chat store", http.StatusInternalServerError)
 		return
+	}
+	if recs == nil {
+		recs = []ChatRecord{}
 	}
 	sort.SliceStable(recs, func(i, j int) bool { return recs[i].StartedAt > recs[j].StartedAt })
 	w.Header().Set("Content-Type", "application/json")

@@ -5,6 +5,7 @@ package chat
 import (
 	"embed"
 	"io/fs"
+	"sync"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/store"
@@ -25,11 +26,12 @@ type ChatRecord struct {
 // Plugin は chat 履歴ストアを保持する同梱プラグイン。
 type Plugin struct {
 	store *store.JSONStore[ChatRecord]
+	mu    *sync.Mutex
 }
 
 // New は chat レコードストアを注入して Plugin を構築する。
 // 消費者 main で `chat.New(store.New[chat.ChatRecord](path))` を Register する想定。
-func New(st *store.JSONStore[ChatRecord]) Plugin { return Plugin{store: st} }
+func New(st *store.JSONStore[ChatRecord]) Plugin { return Plugin{store: st, mu: &sync.Mutex{}} }
 
 func (p Plugin) Meta() plugin.Meta {
 	return plugin.Meta{ID: "chat", Title: "Chat", Pane: plugin.PaneLeft, Order: 0}

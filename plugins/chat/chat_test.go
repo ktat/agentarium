@@ -98,3 +98,16 @@ func TestStartRejectsEmptySummary(t *testing.T) {
 		t.Fatalf("want 400 for empty summary, got %d", rec.Code)
 	}
 }
+
+func TestListEmptyReturnsEmptyArray(t *testing.T) {
+	p := newTestPlugin(t)
+	rec := httptest.NewRecorder()
+	routeOf(t, p, "GET", "/list")(rec, httptest.NewRequest("GET", "/list", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	// items は null ではなく [] であること
+	if !strings.Contains(rec.Body.String(), `"items": []`) && !strings.Contains(rec.Body.String(), `"items":[]`) {
+		t.Fatalf("want items as empty array, got %s", rec.Body.String())
+	}
+}
