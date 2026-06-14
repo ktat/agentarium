@@ -67,6 +67,16 @@ func secretsPaths() (data, key string, err error) {
 	return filepath.Join(base, "settings.json"), filepath.Join(base, "secret.key"), nil
 }
 
+// terminalStorePath は renderer 別のセッション永続化ファイルパスを返す
+// （UserConfigDir/agentarium/terminal-<renderer>.json）。
+func terminalStorePath(renderer string) (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "agentarium", "terminal-"+renderer+".json"), nil
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "secrets" {
 		if err := runSecrets(os.Args[2:]); err != nil {
@@ -146,18 +156,33 @@ func runServer() error {
 
 	agents := terminal.NewAgentRegistry("claude")
 	agents.Register(claudeAgent{})
+	wrapStorePath, err := terminalStorePath("wrap")
+	if err != nil {
+		return err
+	}
+	xtermStorePath, err := terminalStorePath("xterm")
+	if err != nil {
+		return err
+	}
 	// xterm / wrap 両 backend をコンパイルに含めて登録し、実行時に active を選ぶ。
-	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd, agents)}
-	wrapBackend := &wrap.Backend{Registry: wrap.NewRegistry(wd, agents)}
+	// Store 付きにすることで再起動越えのセッション復元（lazy restore）が有効になる。
+	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistryWithStore(wd, agents, terminal.NewStore(xtermStorePath))}
+	wrapBackend := &wrap.Backend{Registry: wrap.NewRegistryWithStore(wd, agents, wrap.NewStore(wrapStorePath))}
 	// active backend は Settings（kernel.terminal_renderer）→ env → 既定 xterm の順で決定。
 	active := settings.TerminalRenderer(sec)
 	if active == "" {
 		active = terminal.EnvActiveBackend()
 	}
+	// canResume: 永続レコードの Agent を解決し、その Agent が表明する artifact の存在で
+	// resume 可否を判定する（claude なら jsonl 存在チェック）。
+	canResume := func(rec terminal.SessionRecord) bool {
+		return sessions.CanResume(agents.Resolve(rec.Agent), rec.WorkDir, rec.SessionID)
+	}
 	svc, err := terminal.NewService(terminal.ServiceConfig{
-		Agents:   agents,
-		Backends: []terminal.Backend{xtermBackend, wrapBackend},
-		Active:   active,
+		Agents:    agents,
+		Backends:  []terminal.Backend{xtermBackend, wrapBackend},
+		Active:    active,
+		CanResume: canResume,
 	})
 	if err != nil {
 		return err
