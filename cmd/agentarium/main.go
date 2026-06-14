@@ -10,6 +10,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"time"
 
 	"github.com/ktat/agentarium"
 	"github.com/ktat/agentarium/kernel/pet"
@@ -55,6 +57,16 @@ func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
 		return ""
 	}
 	return filepath.Join(dir, sessionID+".jsonl")
+}
+
+// StatePatterns は claude TUI の PTY 出力に対する状態検出パラメータ（terminal.StateAware）。
+func (claudeAgent) StatePatterns() terminal.StatePatterns {
+	return terminal.StatePatterns{
+		Permission:       regexp.MustCompile(`(?i)do you want to proceed`),
+		SustainedRunning: 2 * time.Second,
+		IdleTimeout:      1500 * time.Millisecond,
+		BurstGap:         time.Second,
+	}
 }
 
 // secretsPaths は設定データと鍵ファイルのパスを返す（os.UserConfigDir 配下）。
