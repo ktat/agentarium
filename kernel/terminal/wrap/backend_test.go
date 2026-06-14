@@ -109,13 +109,6 @@ func TestBackend_Restore_RegistersPending(t *testing.T) {
 	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
 	reg := NewRegistryWithStore(dir, agents, store)
 	t.Cleanup(reg.Close)
-	// b.Restore は warmup loop を起動する。テストが warmupInterval を跨ぐと cat が
-	// spawn されうるため、Close（loop 停止）より先に起動済みセッションを止める（LIFO）。
-	t.Cleanup(func() {
-		for _, it := range reg.List() {
-			_ = reg.Stop(it.ID)
-		}
-	})
 	b := &Backend{Registry: reg}
 
 	restored, total := b.Restore(nil)
@@ -126,4 +119,8 @@ func TestBackend_Restore_RegistersPending(t *testing.T) {
 	if len(items) != 1 || items[0].ID != "t1" || items[0].Running {
 		t.Fatalf("want 1 pending (Running=false) item, got %+v", items)
 	}
+	// b.Restore は warmup loop を起動する。warmupInterval(2s) を跨ぐと cat が
+	// spawn されうるため、検証後すぐ Close で loop を確定停止する（Close は
+	// 冪等＆wg.Wait で in-flight 起動を待つので、cleanup の Close は no-op）。
+	reg.Close()
 }

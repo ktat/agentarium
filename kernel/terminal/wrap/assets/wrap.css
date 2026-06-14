@@ -2,7 +2,7 @@
   /* wrap ターミナルのフォント。列を揃えるため等幅のみ（プロポーショナルは混ぜない）。
      CJK は等幅 CJK にフォールバックさせ、最後は環境既定の monospace。
      ここを変えれば viewport / ime / measureCell（CSS 継承で実測）すべてに反映される。 */
-  --twrap-font: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono CJK JP", "Noto Sans Mono", monospace;
+  --twrap-font: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono CJK JP", "Noto Sans Mono", monospace;
 }
 .twrap-viewport {
   position: absolute;
