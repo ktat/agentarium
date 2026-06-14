@@ -22,9 +22,10 @@ var ErrNoBackends = errors.New("terminal: no backends configured")
 
 // ServiceConfig は Service の構築パラメータ。
 type ServiceConfig struct {
-	Agents   *AgentRegistry // 必須。agent 名解決に使う
-	Backends []Backend      // 必須。1 つ以上の backend
-	Active   string         // active backend 名。空なら Backends[0] を採用
+	Agents    *AgentRegistry               // 必須。agent 名解決に使う
+	Backends  []Backend                    // 必須。1 つ以上の backend
+	Active    string                       // active backend 名。空なら Backends[0] を採用
+	CanResume func(rec SessionRecord) bool // active backend の Restore に渡す復元可否判定（nil 可）
 }
 
 // Service は Agent ターミナルサービスの制御層。
@@ -66,6 +67,9 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 	svc := &Service{agents: cfg.Agents, backends: backends, active: active, events: newSSEHub()}
 	active.AddStateListener(svc.onStateChange)
+	if restored, total := active.Restore(cfg.CanResume); total > 0 {
+		log.Printf("terminal: restored %d/%d session(s) on backend %q", restored, total, active.Name())
+	}
 	return svc, nil
 }
 
