@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,12 +21,16 @@ func TestTerminalStorePath(t *testing.T) {
 }
 
 func TestClaudeAgent_ResumeArtifact(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("UserHomeDir unavailable")
+	}
 	got := claudeAgent{}.ResumeArtifact("/tmp/work", "sess-1")
 	if !strings.HasSuffix(got, "sess-1.jsonl") {
 		t.Fatalf("ResumeArtifact should end with <sessionID>.jsonl: %s", got)
 	}
-	if !strings.Contains(got, filepath.Join(".claude", "projects")) {
-		t.Fatalf("ResumeArtifact should be under .claude/projects: %s", got)
+	if !strings.HasPrefix(got, filepath.Join(home, ".claude", "projects")) {
+		t.Fatalf("ResumeArtifact should be under ~/.claude/projects: %s", got)
 	}
 	if (claudeAgent{}).ResumeArtifact("/tmp/work", "") != "" {
 		t.Fatal("empty sessionID should return empty path")

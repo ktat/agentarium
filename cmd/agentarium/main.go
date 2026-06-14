@@ -175,6 +175,9 @@ func runServer() error {
 	}
 	// canResume: 永続レコードの Agent を解決し、その Agent が表明する artifact の存在で
 	// resume 可否を判定する（claude なら jsonl 存在チェック）。
+	// 永続レコードは常に具体的な Agent 名を持つ前提。agents.Resolve が nil を返す
+	// （空名 / 未登録）場合は CanResume が楽観的に true を返す（resolveAgent の Default
+	// fallback とは非対称だが、未知 agent は復元側で既に skip 済みのため実害なし）。
 	canResume := func(rec terminal.SessionRecord) bool {
 		return sessions.CanResume(agents.Resolve(rec.Agent), rec.WorkDir, rec.SessionID)
 	}
