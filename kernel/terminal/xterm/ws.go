@@ -59,8 +59,8 @@ func (b *Backend) HandleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
-	p := b.Registry.Get(id)
-	if p == nil {
+	p, ok := b.Registry.EnsureStarted(id)
+	if !ok {
 		http.Error(w, "process not found", http.StatusNotFound)
 		return
 	}

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"errors"
 	"io/fs"
+	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/terminal"
@@ -62,10 +63,23 @@ func (b *Backend) List() []terminal.SessionInfo { return b.Registry.List() }
 // AddStateListener は Registry の AddStateListener に委譲する。
 func (b *Backend) AddStateListener(l terminal.StateListener) { b.Registry.AddStateListener(l) }
 
-// Restore は Phase 3 で本実装する（xterm の lazy 復元）。現状は contract を満たすための
-// no-op。store を読まず常に (0,0) を返す。
+// warmupInterval は Restore 後の lazy warmup が pending entry を 1 件ずつ起動する間隔。
+const warmupInterval = 2 * time.Second
+
+// Restore は store の永続レコードを lazy 復元（pending 登録）し、warmup loop を起動する。
+// pending entry は WS attach（EnsureStarted）でも起動する。canResume=false は skip。
 func (b *Backend) Restore(canResume func(terminal.SessionRecord) bool) (int, int) {
-	return 0, 0
+	pending, total := b.Registry.RestoreFromStoreLazy(canResume)
+	if pending > 0 {
+		b.Registry.StartLazyWarmupLoop(warmupInterval)
+	}
+	return pending, total
+}
+
+// Close は Registry の warmup goroutine を停止する（Service.Close から呼ばれる）。
+func (b *Backend) Close() error {
+	b.Registry.Close()
+	return nil
 }
 
 // Routes は WS handler を返す。Service.MountOn が /terminal 配下に組み込み、

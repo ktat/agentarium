@@ -2,6 +2,7 @@ package xterm
 
 import (
 	"io/fs"
+	"path/filepath"
 	"testing"
 
 	"github.com/ktat/agentarium/kernel/terminal"
@@ -84,13 +85,27 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 	}
 }
 
-// TestBackend_Restore_ContractSatisfied は xterm が TerminalBackend.Restore 契約を
-// 満たすことを確認する。現状は no-op (0,0)。Phase 3 で本実装に差し替わったら、本テストは
-// 削除ではなく実復元を検証するテストへ置き換える。
-func TestBackend_Restore_ContractSatisfied(t *testing.T) {
-	b := &Backend{Registry: NewRegistry(t.TempDir(), nil)}
-	restored, total := b.Restore(func(terminal.SessionRecord) bool { return true })
-	if restored != 0 || total != 0 {
-		t.Fatalf("xterm Restore should be no-op for now, got (%d,%d)", restored, total)
+// TestBackend_Restore_RegistersPendingXterm は Restore が store の永続レコードを
+// pending 復元すること（List に Running=false で載ること）を検証する。
+func TestBackend_Restore_RegistersPendingXterm(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	b := &Backend{Registry: NewRegistryWithStore(dir, agents, store)}
+	t.Cleanup(func() { _ = b.Close() })
+
+	restored, total := b.Restore(nil)
+	if restored != 1 || total != 1 {
+		t.Fatalf("want (1,1), got (%d,%d)", restored, total)
+	}
+	items := b.List()
+	if len(items) != 1 || items[0].ID != "t1" || items[0].Running {
+		t.Fatalf("want 1 pending item, got %+v", items)
 	}
 }
