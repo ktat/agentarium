@@ -10,6 +10,15 @@ type Agent interface {
 	Invocation(req RunRequest) (binary string, args []string)
 }
 
+// ResumableAgent は Agent の任意拡張。自分のセッション履歴の所在を表明する。
+// claude なら ~/.claude/projects/<encoded(workDir)>/<sessionID>.jsonl。
+// 満たさない Agent は復元可否を判定できない（呼び出し側は楽観的に復元を試みる）。
+type ResumableAgent interface {
+	Agent
+	// ResumeArtifact は「存在すれば resume 可能」なファイルパスを返す（空なら判定対象なし）。
+	ResumeArtifact(workDir, sessionID string) string
+}
+
 // ConfigAgent は設定駆動の汎用 Agent。コードを書かずに済む任意エージェント用。
 // ModelFlag が空なら RunRequest.Model は無視する。Resume/SessionName は扱わない
 // （扱いたいエージェントは専用の Agent 実装を書く）。

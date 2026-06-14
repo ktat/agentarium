@@ -44,6 +44,19 @@ func (claudeAgent) Invocation(req terminal.RunRequest) (string, []string) {
 	return "claude", args
 }
 
+// ResumeArtifact は claude セッション履歴 jsonl のパスを返す（terminal.ResumableAgent）。
+// 存在すれば --resume 可能。sessions プラグインの projects dir 規約を再利用する。
+func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	dir, err := sessions.SessionsDirFor(workDir)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, sessionID+".jsonl")
+}
+
 // secretsPaths は設定データと鍵ファイルのパスを返す（os.UserConfigDir 配下）。
 func secretsPaths() (data, key string, err error) {
 	dir, err := os.UserConfigDir()
