@@ -62,6 +62,12 @@ func (b *Backend) List() []terminal.SessionInfo { return b.Registry.List() }
 // AddStateListener は Registry の AddStateListener に委譲する。
 func (b *Backend) AddStateListener(l terminal.StateListener) { b.Registry.AddStateListener(l) }
 
+// Restore は Phase 3 で本実装する（xterm の lazy 復元）。現状は contract を満たすための
+// no-op。store を読まず常に (0,0) を返す。
+func (b *Backend) Restore(canResume func(terminal.SessionRecord) bool) (int, int) {
+	return 0, 0
+}
+
 // Routes は WS handler を返す。Service.MountOn が /terminal 配下に組み込み、
 // 最終的に GET /terminal/ws?id=<terminal-id> として公開される。
 func (b *Backend) Routes() []plugin.Route {

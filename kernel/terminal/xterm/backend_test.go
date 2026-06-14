@@ -83,3 +83,11 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 		t.Fatalf("index.js should be embedded: %v", err)
 	}
 }
+
+func TestBackend_Restore_NoopForNow(t *testing.T) {
+	b := &Backend{Registry: NewRegistry(t.TempDir())}
+	restored, total := b.Restore(func(terminal.SessionRecord) bool { return true })
+	if restored != 0 || total != 0 {
+		t.Fatalf("xterm Restore should be no-op for now, got (%d,%d)", restored, total)
+	}
+}

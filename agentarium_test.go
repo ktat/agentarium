@@ -139,7 +139,8 @@ func (fakeBackendForApp) SetSessionID(id, sessionID string)        {}
 func (fakeBackendForApp) List() []terminal.SessionInfo             { return nil }
 func (fakeBackendForApp) Routes() []plugin.Route                   { return nil }
 func (fakeBackendForApp) Assets() fs.FS                            { return nil }
-func (fakeBackendForApp) AddStateListener(l terminal.StateListener) {}
+func (fakeBackendForApp) AddStateListener(l terminal.StateListener)                                   {}
+func (fakeBackendForApp) Restore(canResume func(terminal.SessionRecord) bool) (int, int) { return 0, 0 }
 
 func TestApp_WithTerminalRegistersRoutes(t *testing.T) {
 	app := New()
