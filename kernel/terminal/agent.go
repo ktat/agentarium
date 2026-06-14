@@ -1,5 +1,10 @@
 package terminal
 
+import (
+	"regexp"
+	"time"
+)
+
 // Agent はバイナリと引数の組み立てを各エージェントが知る抽象。
 // claude/codex/任意エージェント固有の引数組み立ては実装の内側に閉じ、
 // カーネル境界を agent-agnostic に保つ。具体的な ClaudeAgent 等は kernel 内に
@@ -17,6 +22,21 @@ type ResumableAgent interface {
 	Agent
 	// ResumeArtifact は「存在すれば resume 可能」なファイルパスを返す（空なら判定対象なし）。
 	ResumeArtifact(workDir, sessionID string) string
+}
+
+// StatePatterns は Agent ごとの PTY 出力状態検出パラメータ。
+// パターンは terminal 固有でなく agent 固有（各 terminal は自分の agent のものを使う）。
+type StatePatterns struct {
+	Permission       *regexp.Regexp // マッチ行で awaiting_user（nil なら permission 検出なし）
+	SustainedRunning time.Duration  // 出力継続がこの時間を超えたら running
+	IdleTimeout      time.Duration  // 沈黙がこの時間を超えたら idle 降格
+	BurstGap         time.Duration  // この無出力後の出力を新 burst 開始とみなす
+}
+
+// StateAware は Agent の任意拡張。PTY 出力から状態を検出するためのパターンを表明する。
+// 実装しない Agent は状態検出の対象外（その terminal は idle 固定）。
+type StateAware interface {
+	StatePatterns() StatePatterns
 }
 
 // ConfigAgent は設定駆動の汎用 Agent。コードを書かずに済む任意エージェント用。
