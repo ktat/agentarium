@@ -101,6 +101,19 @@ func (s *Service) Close() error {
 	return firstErr
 }
 
+// forgetHook は observer.Observer の Forget に detector.forget を相乗りさせる
+// ObserverHooks ラッパ。registry が terminal 終了時に Forget を呼ぶと両方の内部状態を掃除する。
+// OnInput/OnOutput は埋め込んだ *observer.Observer から昇格する。
+type forgetHook struct {
+	*observer.Observer
+	also func(string)
+}
+
+func (f forgetHook) Forget(id string) {
+	f.Observer.Forget(id)
+	f.also(id)
+}
+
 // wireDetector は active backend が ObserverBackend かつ StateSetter のときだけ
 // PTY 状態検出を有効化する。満たさない backend では検出無効（idle 固定）。
 func (s *Service) wireDetector() {
@@ -112,7 +125,7 @@ func (s *Service) wireDetector() {
 	obs := observer.New()
 	d := newDetector(setter, s.currentStates, s.patternsForTerminal, time.Now)
 	d.register(obs)
-	ob.SetObserver(obs)
+	ob.SetObserver(forgetHook{Observer: obs, also: d.forget})
 	d.start()
 	s.detector = d
 }

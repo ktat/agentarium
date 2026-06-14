@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
+	"github.com/ktat/agentarium/kernel/terminal/observer"
 )
 
 // fakeBackend はテスト用の最小 Backend 実装。
@@ -669,4 +670,16 @@ func waitForState(svc *Service, want string, d time.Duration) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return false
+}
+
+func TestForgetHook_DelegatesBoth(t *testing.T) {
+	obs := observer.New()
+	called := ""
+	h := forgetHook{Observer: obs, also: func(id string) { called = id }}
+	// ObserverHooks を満たすこと（OnInput/OnOutput/Forget）
+	var _ ObserverHooks = h
+	h.Forget("t1")
+	if called != "t1" {
+		t.Fatalf("detector forget not delegated, got %q", called)
+	}
 }

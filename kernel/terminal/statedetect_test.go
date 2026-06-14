@@ -140,3 +140,28 @@ func TestDetector_NoPatternsNoOp(t *testing.T) {
 		t.Fatalf("want no SetState calls, got %v", f.calls)
 	}
 }
+
+func TestDetector_ForgetStopsTracking(t *testing.T) {
+	f := newFakeSetter()
+	now := time.Unix(500, 0)
+	d := newTestDetector(f, &now)
+	// 連続 burst で running にする
+	d.onLine("t1", "l1")
+	now = now.Add(800 * time.Millisecond)
+	d.onLine("t1", "l2")
+	now = now.Add(800 * time.Millisecond)
+	d.onLine("t1", "l3")
+	now = now.Add(800 * time.Millisecond)
+	d.onLine("t1", "l4")
+	d.tick()
+	if f.snapshot()["t1"] != StateRunning {
+		t.Fatalf("setup: want running, got %v", f.snapshot()["t1"])
+	}
+	// forget 後は追跡対象外 → 沈黙しても idle 降格しない
+	d.forget("t1")
+	now = now.Add(5 * time.Second)
+	d.tick()
+	if f.snapshot()["t1"] != StateRunning {
+		t.Fatalf("forgotten terminal must not be demoted, got %v", f.snapshot()["t1"])
+	}
+}
