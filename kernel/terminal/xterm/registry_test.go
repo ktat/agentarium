@@ -1,6 +1,7 @@
 package xterm
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -137,5 +138,28 @@ func TestRegistry_StopThenStartSameID_OldOnExitDoesNotRemoveNew(t *testing.T) {
 	}
 	if got := r.Get("t1"); got != p2 {
 		t.Fatalf("registry lost the new entry; got %v want %v", got, p2)
+	}
+}
+
+func TestPersist_WritesSessionRecord(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	r := NewRegistryWithStore(t.TempDir(), store)
+	ag := terminal.ConfigAgent{AgentName: "claude", Binary: "cat", ModelFlag: "--model"}
+	if _, err := r.Start("t1", "L1", ag, terminal.RunRequest{Model: "opus"}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	r.SetSessionID("t1", "s1")
+
+	recs, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("want 1 record, got %d", len(recs))
+	}
+	got := recs[0]
+	if got.Agent != "claude" || got.Model != "opus" || got.SessionID != "s1" || got.Label != "L1" {
+		t.Fatalf("record missing fields: %+v", got)
 	}
 }

@@ -35,8 +35,12 @@ type Registry struct {
 type entry struct {
 	Process     *Process
 	Label       string
-	Args        []string
+	AgentName   string
+	WorkDir     string
+	Model       string
 	SessionID   string
+	Cols        int
+	AltRows     int
 	State       terminal.SessionState
 	StateSince  time.Time
 	StateSource string
@@ -112,7 +116,9 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 	ent := &entry{
 		Process:     p,
 		Label:       label,
-		Args:        append([]string(nil), args...),
+		AgentName:   ag.Name(),
+		WorkDir:     r.workDir,
+		Model:       req.Model,
 		State:       terminal.StateIdle,
 		StateSince:  time.Now(),
 		StateSource: "init",
@@ -272,22 +278,26 @@ func (r *Registry) removeIfSame(id string, ent *entry) {
 	}
 }
 
-// persist は store があれば SessionID を持つ entry を書き出す。
+// persist は store があれば SessionID を持つ entry を SessionRecord として書き出す。
 func (r *Registry) persist() {
 	if r.store == nil {
 		return
 	}
 	r.mu.Lock()
-	out := make([]terminal.RegistryEntry, 0, len(r.processes))
+	out := make([]terminal.SessionRecord, 0, len(r.processes))
 	for id, e := range r.processes {
 		if e.SessionID == "" {
 			continue
 		}
-		out = append(out, terminal.RegistryEntry{
+		out = append(out, terminal.SessionRecord{
 			ID:        id,
 			Label:     e.Label,
+			WorkDir:   e.WorkDir,
+			Agent:     e.AgentName,
 			SessionID: e.SessionID,
-			Args:      append([]string(nil), e.Args...),
+			Model:     e.Model,
+			Cols:      e.Cols,
+			AltRows:   e.AltRows,
 		})
 	}
 	r.mu.Unlock()
