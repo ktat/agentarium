@@ -424,7 +424,7 @@ func (r *Registry) resolveAgent(name string) terminal.Agent {
 // SessionID を持つ entry は、canResume が非 nil かつ false を返す場合は skip する
 // （resume 不能なセッションの復元失敗を避ける。claude なら jsonl 存在チェック等を渡す）。
 // canResume が nil なら常に resume を試みる。戻り値は (復元できた件数, store 総件数)。
-func (r *Registry) RestoreFromStore(canResume func(sessionID string) bool) (restored int, total int) {
+func (r *Registry) RestoreFromStore(canResume func(rec terminal.SessionRecord) bool) (restored int, total int) {
 	if r.store == nil {
 		return 0, 0
 	}
@@ -441,7 +441,7 @@ func (r *Registry) RestoreFromStore(canResume func(sessionID string) bool) (rest
 		}
 		req := terminal.RunRequest{Model: e.Model}
 		if e.SessionID != "" {
-			if canResume != nil && !canResume(e.SessionID) {
+			if canResume != nil && !canResume(e) {
 				log.Printf("terminal/wrap restore: skip id=%s (cannot resume %s)", e.ID, e.SessionID)
 				continue
 			}

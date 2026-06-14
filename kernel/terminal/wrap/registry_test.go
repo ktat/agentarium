@@ -178,7 +178,7 @@ func TestRestoreFromStore_SkipsWhenCannotResume(t *testing.T) {
 
 	r := NewRegistryWithStore("", agents, store)
 	t.Cleanup(func() { r.Close() })
-	restored, total := r.RestoreFromStore(func(sessionID string) bool { return false })
+	restored, total := r.RestoreFromStore(func(rec terminal.SessionRecord) bool { return false })
 	if restored != 0 || total != 1 {
 		t.Fatalf("want restored=0 total=1, got restored=%d total=%d", restored, total)
 	}
@@ -286,7 +286,7 @@ func TestRestoreFromStoreLazy_SkipsWhenCannotResume(t *testing.T) {
 
 	r := NewRegistryWithStore("", agents, store)
 	t.Cleanup(func() { r.Close() })
-	pending, total := r.RestoreFromStoreLazy(func(sessionID string) bool { return false })
+	pending, total := r.RestoreFromStoreLazy(func(rec terminal.SessionRecord) bool { return false })
 	if pending != 0 || total != 1 {
 		t.Fatalf("want pending=0 total=1, got %d/%d", pending, total)
 	}

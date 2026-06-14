@@ -24,7 +24,7 @@ import (
 // RestoreFromStoreLazy は store の entry を起動せず pending として登録する。
 // canResume の規約は RestoreFromStore と同じ（claude なら jsonl 存在チェック等を渡す）。
 // 戻り値は (pending として登録できた件数, store の総件数)。
-func (r *Registry) RestoreFromStoreLazy(canResume func(sessionID string) bool) (pending int, total int) {
+func (r *Registry) RestoreFromStoreLazy(canResume func(rec terminal.SessionRecord) bool) (pending int, total int) {
 	if r.store == nil {
 		return 0, 0
 	}
@@ -38,7 +38,7 @@ func (r *Registry) RestoreFromStoreLazy(canResume func(sessionID string) bool) (
 			log.Printf("terminal/wrap lazy restore: skip id=%s (unknown agent %q)", e.ID, e.Agent)
 			continue
 		}
-		if e.SessionID != "" && canResume != nil && !canResume(e.SessionID) {
+		if e.SessionID != "" && canResume != nil && !canResume(e) {
 			log.Printf("terminal/wrap lazy restore: skip id=%s (cannot resume %s)", e.ID, e.SessionID)
 			continue
 		}
