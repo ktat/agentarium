@@ -45,7 +45,7 @@ export async function render(root, ctx) {
   Object.assign(banner.style, {
     position: 'absolute', top: '0', left: '0', right: '0', padding: '2px 8px',
     textAlign: 'center', font: '12px monospace', background: '#6a5acd', color: '#fff',
-    zIndex: '20', display: 'none',
+    zIndex: '20', display: 'none', pointerEvents: 'none',
   });
   root.appendChild(banner);
 

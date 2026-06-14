@@ -500,6 +500,7 @@ export async function render(root, ctx) {
     close() {
       userClosed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (entry.pendingRender) { cancelAnimationFrame(entry.pendingRender); entry.pendingRender = 0; }
       try { entry.ws && entry.ws.close(); } catch (_) {}
       try { ro.disconnect(); } catch (_) {}
     },

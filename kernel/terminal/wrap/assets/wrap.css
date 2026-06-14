@@ -92,4 +92,5 @@
   background: #6a5acd;
   color: #fff;
   z-index: 20;
+  pointer-events: none; /* 切断中のオーバーレイがクリックを奪わない */
 }
