@@ -196,6 +196,25 @@ func TestRestoreFromStoreLazy_RegistersPendingXterm(t *testing.T) {
 	t.Cleanup(func() { _ = p.Stop() })
 }
 
+func TestStop_PendingEntryNoPanic(t *testing.T) {
+	dir := t.TempDir()
+	store := terminal.NewStore(filepath.Join(dir, "x.json"))
+	if err := store.Save([]terminal.SessionRecord{
+		{ID: "t1", Label: "L1", Agent: "cat", SessionID: "s1", WorkDir: dir},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	r := NewRegistryWithStore(dir, agents, store)
+	t.Cleanup(r.Close)
+	r.RestoreFromStoreLazy(nil) // t1 を pending（Process==nil）で登録
+	// pending entry の Stop は Process が無いので panic せず nil を返すべき。
+	if err := r.Stop("t1"); err != nil {
+		t.Fatalf("Stop on pending entry: %v", err)
+	}
+}
+
 func TestRestoreFromStoreLazy_SkipsWhenCannotResumeXterm(t *testing.T) {
 	dir := t.TempDir()
 	store := terminal.NewStore(filepath.Join(dir, "x.json"))

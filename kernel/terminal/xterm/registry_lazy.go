@@ -89,10 +89,9 @@ func (r *Registry) EnsureStarted(id string) (*Process, bool) {
 		return p, true
 	}
 	if err := r.startPendingLocked(id, e); err != nil {
-		r.removePendingLocked(id, e)
+		r.removePendingLocked(id, e) // 内部で persistLocked 済み
 		r.mu.Unlock()
 		log.Printf("terminal/xterm lazy start: id=%s failed: %v", id, err)
-		r.persist()
 		return nil, false
 	}
 	p := e.Process
@@ -130,13 +129,15 @@ func (r *Registry) startPendingLocked(id string, e *entry) error {
 	return nil
 }
 
-// removePendingLocked は起動に失敗した pending entry を map から外す（r.mu 保持前提）。
-// 永続化は呼び出し側が mu 解放後に行う。
+// removePendingLocked は起動に失敗した pending entry を map から外し永続化する
+// （r.mu 保持前提）。EnsureStarted / StartNextPending の両失敗経路から呼ばれ、
+// stale entry が再起動で復活しないよう store からも除く（wrap と同じく内部で persistLocked）。
 func (r *Registry) removePendingLocked(id string, e *entry) {
 	if e.SessionID != "" {
 		delete(r.sessionIndex, e.SessionID)
 	}
 	delete(r.processes, id)
+	r.persistLocked()
 }
 
 // StartNextPending は pending entry を ID 昇順で 1 件だけ起動する。

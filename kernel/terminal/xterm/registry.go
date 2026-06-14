@@ -45,8 +45,8 @@ type entry struct {
 	WorkDir   string
 	Model     string
 	SessionID string
-	// Cols/AltRows: 現状 xterm の Start は cols/altRows を受け取らないため常に 0。
-	// TODO(restore): xterm 復元実装時に初期サイズを捕捉する（Phase 3）。
+	// Cols/AltRows: xterm は xterm.js が attach 時 resize でサイズを送るため、サーバ側は
+	// 初期サイズを保持しない（常に 0）。SessionRecord 互換のため field は残す。
 	Cols        int
 	AltRows     int
 	State       terminal.SessionState
@@ -241,6 +241,10 @@ func (r *Registry) Stop(id string) error {
 	r.persist()
 	if obs != nil {
 		obs.Forget(id)
+	}
+	// pending entry（Process==nil。warmup 起動前に Stop された）は停止対象が無い。
+	if e.Process == nil {
+		return nil
 	}
 	return e.Process.Stop()
 }
