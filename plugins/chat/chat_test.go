@@ -10,6 +10,7 @@ import (
 
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/store"
+	"github.com/ktat/agentarium/kernel/terminal"
 )
 
 func newTestPlugin(t *testing.T) Plugin {
@@ -185,5 +186,13 @@ func TestUpdateRequiresID(t *testing.T) {
 	routeOf(t, p, "POST", "/update")(rec, httptest.NewRequest("POST", "/update?session_id=x", nil))
 	if rec.Code != 400 {
 		t.Fatalf("want 400 for missing id, got %d", rec.Code)
+	}
+}
+
+func TestStartIDIsValidTerminalID(t *testing.T) {
+	p := newTestPlugin(t)
+	id := seedOne(t, p, "hello")
+	if _, err := terminal.NewTerminalID(id); err != nil {
+		t.Fatalf("minted chat id %q is not a valid terminal id: %v", id, err)
 	}
 }

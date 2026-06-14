@@ -52,7 +52,7 @@ func (p Plugin) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	id := "chat:" + strconv.FormatInt(now.UnixNano(), 10)
+	id := "chat-" + strconv.FormatInt(now.UnixNano(), 10)
 	recs = append(recs, ChatRecord{ID: id, Summary: summary, StartedAt: now.Format(time.RFC3339)})
 	if err := p.store.Save(recs); err != nil {
 		log.Printf("plugins/chat: save: %v", err)
@@ -89,7 +89,9 @@ func (p Plugin) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	sid := r.URL.Query().Get("session_id")
 	p.mutate(w, r.URL.Query().Get("id"), func(rec *ChatRecord) {
-		rec.SessionID = sid
+		if sid != "" {
+			rec.SessionID = sid
+		}
 	})
 }
 
