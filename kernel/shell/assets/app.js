@@ -8,6 +8,14 @@ const rightTabs = new Map(); // key → {tabEl, panelEl, instance}
 const viewerTabs = new Map(); // key → {tabEl, panelEl}
 let rendererName = null;
 
+// command 注入のタイミング定数。claude などの TUI は
+//  (a) 起動直後は入力を受け付けられない（WS 接続 = renderer ready の時点ではまだ未起動）
+//  (b) 'text\r' を一括で受けると paste 検知で \r を改行として扱い、submit されない
+// ため、ready 後に少し待ってから本文を送り、Enter(\r) は別フレームで送る。
+// 値は backlog-worker で実証済み（起動待ち 1500ms / Enter ギャップは余裕を見て 80ms）。
+const INJECT_START_DELAY_MS = 1500;
+const INJECT_ENTER_GAP_MS = 80;
+
 async function loadRendererName() {
   try {
     const res = await fetch('/terminal/renderer');
@@ -162,22 +170,30 @@ async function openAgentTab(opts) {
     panelEl.textContent = 'failed to load renderer ' + rendererName + ': ' + e;
   }
 
-  // 4) command が指定されていれば inject (autoEnter で \r)
+  // 4) command が指定されていれば inject。
+  //    TUI 起動を待ってから本文を送り、autoEnter の Enter(\r) は別 inject フレームで送る
+  //    （一括 'text\r' だと claude の paste 検知で \r が改行扱いされ submit されないため）。
   if (command) {
-    const entry = rightTabs.get(key);
-    const inst = entry && entry.instance;
-    const send = () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const injectOnce = (text) =>
       fetch('/terminal/inject', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ terminal_id: key, text: command, enter: !!autoEnter }),
+        body: JSON.stringify({ terminal_id: key, text: text, enter: false }),
       }).catch(() => {});
-    };
-    if (inst && inst.ready && typeof inst.ready.then === 'function') {
-      inst.ready.then(send).catch(send);
-    } else {
-      setTimeout(send, 200); // ready 非対応 renderer 向けフォールバック
-    }
+    const entry = rightTabs.get(key);
+    const inst = entry && entry.instance;
+    const waitReady = (inst && inst.ready && typeof inst.ready.then === 'function')
+      ? inst.ready
+      : Promise.resolve();
+    waitReady.catch(() => {}).then(async () => {
+      await sleep(INJECT_START_DELAY_MS); // TUI 起動待ち
+      await injectOnce(command);          // 本文（Enter は付けない）
+      if (autoEnter) {
+        await sleep(INJECT_ENTER_GAP_MS); // paste 検知回避のため間隔を空けて別フレーム
+        await injectOnce('\r');           // Enter
+      }
+    });
   }
 }
 
