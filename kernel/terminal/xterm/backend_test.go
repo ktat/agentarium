@@ -85,6 +85,11 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 	}
 }
 
+func TestBackend_SatisfiesObserverAndStateSetter(t *testing.T) {
+	var _ terminal.ObserverBackend = (*Backend)(nil)
+	var _ terminal.StateSetter = (*Backend)(nil)
+}
+
 // TestBackend_Restore_RegistersPendingXterm は Restore が store の永続レコードを
 // pending 復元すること（List に Running=false で載ること）を検証する。
 func TestBackend_Restore_RegistersPendingXterm(t *testing.T) {

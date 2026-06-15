@@ -1,5 +1,5 @@
 // cmd/agentarium は参照デモアプリ。
-// hello + sessions + manifest プラグインと xterm ターミナル、secrets を結線して起動する。
+// hello + sessions + chat + manifest プラグインと xterm ターミナル、secrets を結線して起動する。
 // `agentarium secrets rekey ...` で暗号化値の鍵移行も行う。
 package main
 
@@ -10,15 +10,19 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"time"
 
 	"github.com/ktat/agentarium"
 	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
 	"github.com/ktat/agentarium/kernel/settings"
+	"github.com/ktat/agentarium/kernel/store"
 	"github.com/ktat/agentarium/kernel/terminal"
 	"github.com/ktat/agentarium/kernel/terminal/wrap"
 	"github.com/ktat/agentarium/kernel/terminal/xterm"
+	"github.com/ktat/agentarium/plugins/chat"
 	"github.com/ktat/agentarium/plugins/hello"
 	"github.com/ktat/agentarium/plugins/sessions"
 )
@@ -57,6 +61,20 @@ func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
 	return filepath.Join(dir, sessionID+".jsonl")
 }
 
+// claudePermission は claude の許可プロンプト検出パターン。StatePatterns は行ごと/
+// tick ごとに高頻度で呼ばれるため、正規表現はパッケージ変数に切り出して再コンパイルを避ける。
+var claudePermission = regexp.MustCompile(`(?i)do you want to proceed`)
+
+// StatePatterns は claude TUI の PTY 出力に対する状態検出パラメータ（terminal.StateAware）。
+func (claudeAgent) StatePatterns() terminal.StatePatterns {
+	return terminal.StatePatterns{
+		Permission:       claudePermission,
+		SustainedRunning: 2 * time.Second,
+		IdleTimeout:      1500 * time.Millisecond,
+		BurstGap:         time.Second,
+	}
+}
+
 // secretsPaths は設定データと鍵ファイルのパスを返す（os.UserConfigDir 配下）。
 func secretsPaths() (data, key string, err error) {
 	dir, err := os.UserConfigDir()
@@ -75,6 +93,16 @@ func terminalStorePath(renderer string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "agentarium", "terminal-"+renderer+".json"), nil
+}
+
+// chatStorePath は chat 履歴の永続化ファイルパスを返す
+// （os.UserConfigDir 配下、terminalStorePath と同じ流儀）。
+func chatStorePath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "agentarium", "chat.json"), nil
 }
 
 func main() {
@@ -144,10 +172,17 @@ func runServer() error {
 		return err
 	}
 
+	chatPath, err := chatStorePath()
+	if err != nil {
+		return err
+	}
+	chatStore := store.New[chat.ChatRecord](chatPath)
+
 	app := agentarium.New()
 	if err := app.Register(
 		hello.Plugin{},
 		sessions.New(wd),
+		chat.New(chatStore),
 		manifestPlugin,
 	); err != nil {
 		return err

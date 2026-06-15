@@ -26,7 +26,9 @@ func main() {
 }
 ```
 
-ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `Handler` / `Run` / `Shutdown`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal`）の両方が public です。
+ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `Handler` / `Run` / `Shutdown`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal` / `kernel/store`）の両方が public です。
+
+`kernel/store` は `[]T` を JSON ファイルへ atomic に永続化する汎用ストア（`store.New[T](path)`）で、プラグインが小さな状態を保存するのに使えます（消費者 main が plugin ごとに別パスを渡す）。
 
 ## 実行（参照デモ）
 
@@ -34,7 +36,7 @@ func main() {
 go run ./cmd/agentarium
 ```
 
-`cmd/agentarium` は hello + sessions プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
+`cmd/agentarium` は hello + sessions + chat + manifest プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
 
 ### 環境変数
 
@@ -184,6 +186,7 @@ data: {"sessions":[{"id":"t1","label":"...","state":"running"}],"counts":{"idle"
 | プラグイン | 説明 |
 |---|---|
 | `plugins/sessions` | `~/.claude/projects/<workdir>` の claude セッション一覧 + Resume |
+| `plugins/chat` | 自由入力テキストを既定エージェントの初期入力として起動 + chat 履歴の一覧/再開/archive。ルート `/plugins/chat/{start,list,update,archive}`、保存先 `<os.UserConfigDir>/agentarium/chat.json` |
 | `plugins/hello` | 最小リファレンスプラグイン（Settings dogfood 付き） |
 
 ## Agent ターミナル
@@ -194,6 +197,18 @@ backend は 2 種類:
 
 - `xterm`: 生 PTY バイト + xterm.js
 - `wrap`: サーバ側 VT エミュレータ（行差分を JSON で送出）
+
+### 状態検出（Pet 連携）
+
+Agent ターミナルの PTY 出力を観測し、セッション状態（`running` / `awaiting_user` / `idle`）を
+判定して `/terminal/events` SSE に配信する。判定パターンは **Agent プロファイルが所有**する
+（`terminal.StateAware` を実装した Agent のみ対象。未実装の Agent は `idle` 固定）。
+
+- 出力が一定時間継続 → `running`
+- 許可プロンプト（claude は `do you want to proceed`）→ `awaiting_user`
+- 一定時間沈黙 → `idle` 降格（`awaiting_user` は時間では降格しない）
+
+この状態が外部 Pet バイナリの表情にマップされる。
 
 ### セッション復元（再起動越え）
 

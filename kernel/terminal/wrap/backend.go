@@ -64,6 +64,14 @@ func (b *Backend) List() []terminal.SessionInfo { return b.Registry.List() }
 // AddStateListener は Registry の AddStateListener に委譲する。
 func (b *Backend) AddStateListener(l terminal.StateListener) { b.Registry.AddStateListener(l) }
 
+// SetObserver は Registry へ委譲する（terminal.ObserverBackend）。
+func (b *Backend) SetObserver(o terminal.ObserverHooks) { b.Registry.SetObserver(o) }
+
+// SetState は Registry へ委譲する（terminal.StateSetter）。
+func (b *Backend) SetState(id string, s terminal.SessionState, source string) {
+	b.Registry.SetState(id, s, source)
+}
+
 // Close は Registry の background goroutine（warmup / persist loop）を停止する。
 // terminal.Service.Close から呼ばれ、library 消費者の graceful shutdown で
 // goroutine leak を防ぐ（R1）。error は将来の拡張用に返すが現状は常に nil。

@@ -97,6 +97,11 @@ func TestBackendAssets_HasRendererFiles(t *testing.T) {
 	}
 }
 
+func TestBackend_SatisfiesObserverAndStateSetter(t *testing.T) {
+	var _ terminal.ObserverBackend = (*Backend)(nil)
+	var _ terminal.StateSetter = (*Backend)(nil)
+}
+
 func TestBackend_Restore_RegistersPending(t *testing.T) {
 	dir := t.TempDir()
 	store := terminal.NewStore(filepath.Join(dir, "w.json"))
