@@ -136,15 +136,32 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 		StateSince:  time.Now(),
 		StateSource: "init",
 	}
+	// resume 起動なら session 識別子は既知。即設定して /terminal/list へ反映し、
+	// 逆引き index も張る（再 resume・履歴の再開ボタン有効化のため）。
+	if req.Resume != "" {
+		ent.SessionID = req.Resume
+		r.sessionIndex[req.Resume] = id
+	}
+	// stop は SetOnExit でクローズし、session 検出ウォッチャを停止させる。
+	stop := make(chan struct{})
 	// SetOnExit BEFORE Start: prevents a race where the process exits immediately
 	// (before SetOnExit is called after Start) leaving a ghost entry in the registry.
 	// Also use removeIfSame so a stale onExit closure cannot delete a new entry
 	// registered under the same id after Stop+Start.
-	p.SetOnExit(func() { r.removeIfSame(id, ent) })
+	p.SetOnExit(func() { close(stop); r.removeIfSame(id, ent) })
 	if err := p.Start(); err != nil {
 		return nil, err
 	}
 	r.processes[id] = ent
+	// fresh 起動かつ Agent が SessionDetector なら、新規セッション識別子を検出して紐付ける。
+	if req.Resume == "" {
+		if _, ok := ag.(terminal.SessionDetector); ok {
+			go terminal.WatchNewSession(ag, r.workDir,
+				func(s string) bool { return r.IDBySessionID(s) != "" },
+				func(s string) { r.SetSessionID(id, s) },
+				stop)
+		}
+	}
 	return p, nil
 }
 

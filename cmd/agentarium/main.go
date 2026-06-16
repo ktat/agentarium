@@ -59,6 +59,12 @@ func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
 	return filepath.Join(dir, sessionID+".jsonl")
 }
 
+// ListSessionIDs は現在の claude セッション識別子を新しい順で返す（terminal.SessionDetector）。
+// カーネルが新規起動セッションの UUID 検出（再開用の紐付け）に使う。
+func (claudeAgent) ListSessionIDs(workDir string) []string {
+	return sessions.SessionIDs(workDir)
+}
+
 // secretsPaths は設定データと鍵ファイルのパスを返す（os.UserConfigDir 配下）。
 func secretsPaths() (data, key string, err error) {
 	dir, err := os.UserConfigDir()

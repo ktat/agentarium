@@ -13,6 +13,7 @@ import (
 	"github.com/ktat/agentarium/kernel/terminal/xterm" // xterm backend
 	"github.com/ktat/agentarium/plugins/chat"          // 同梱プラグインから opt-in
 	"github.com/ktat/agentarium/plugins/hello"         // 同梱プラグインから opt-in
+	"github.com/ktat/agentarium/plugins/sessions"      // claude セッション検出に再利用
 	// 実際にはここで自作の plugins/mybacklog などを import する
 )
 
@@ -33,6 +34,13 @@ func (claudeAgent) Invocation(req terminal.RunRequest) (string, []string) {
 		args = append(args, "-n", req.SessionName)
 	}
 	return "claude", args
+}
+
+// ListSessionIDs は現在の claude セッション識別子を新しい順で返す（terminal.SessionDetector）。
+// これを実装すると、カーネルが新規起動セッションの UUID を検出して紐付け、
+// Chat タブの「再開」が有効になる。
+func (claudeAgent) ListSessionIDs(workDir string) []string {
+	return sessions.SessionIDs(workDir)
 }
 
 func main() {

@@ -19,6 +19,17 @@ type ResumableAgent interface {
 	ResumeArtifact(workDir, sessionID string) string
 }
 
+// SessionDetector は Agent の任意拡張。起動した自分のセッション識別子を
+// 出力に依存せず列挙できることを表明する（claude なら ~/.claude/projects/<enc>/<uuid>.jsonl）。
+// カーネルは起動直前に現状のセッション集合を控え、起動後にポーリングして新規に
+// 出現した識別子を検出し SetSessionID に渡す（WatchNewSession 参照）。
+// 満たさない Agent ではセッション識別子の自動検出は行われない。
+type SessionDetector interface {
+	Agent
+	// ListSessionIDs は現在 workDir に存在するセッション識別子を新しい順で返す。
+	ListSessionIDs(workDir string) []string
+}
+
 // ConfigAgent は設定駆動の汎用 Agent。コードを書かずに済む任意エージェント用。
 // ModelFlag が空なら RunRequest.Model は無視する。Resume/SessionName は扱わない
 // （扱いたいエージェントは専用の Agent 実装を書く）。
