@@ -274,6 +274,20 @@ export async function render(root, ctx) {
   // (\x1b[?25l) で隠されている間 (Claude TUI 等が独自カーソルを描く間) は出さない。
   // 位置は cursorEl / .twrap-line とも offsetParent が viewport なので、行の
   // offsetTop/offsetLeft + 列 × cell 幅で重なる (フォントは厳密 monospace 前提)。
+  // 行に実描画されたテキストの右端 (offsetParent=viewport 基準の x)。全角グリフ
+  // の実幅が 2×セル幅と一致しないフォント (CJK フォールバック) では、列モデル
+  // (cursorX×セル幅) が実描画より右へドリフトする。カーソル / IME オーバーレイ
+  // を「列モデルの位置を実描画右端で上限クランプ」して行末で密着させるのに使う
+  // (行中編集では列モデルが右端より左なのでクランプは効かず従来位置を保つ)。
+  function rowContentRight(rowEl) {
+    const lastSpan = rowEl.lastElementChild;
+    if (!lastSpan) return null;
+    const rowRect = rowEl.getBoundingClientRect();
+    const spanRect = lastSpan.getBoundingClientRect();
+    const right = rowEl.offsetLeft + (spanRect.right - rowRect.left);
+    return right > 0 ? right : null;
+  }
+
   function renderCursor(maxY) {
     const el = entry.cursorEl;
     if (!el) return;
@@ -287,7 +301,10 @@ export async function render(root, ctx) {
     if (!entry.fontMetric) entry.fontMetric = measureCell();
     const m = entry.fontMetric;
     el.style.display = 'block';
-    el.style.left = (rowEl.offsetLeft + entry.cursorX * m.w) + 'px';
+    let left = rowEl.offsetLeft + entry.cursorX * m.w;
+    const cr = rowContentRight(rowEl);
+    if (cr !== null) left = Math.min(left, cr);
+    el.style.left = left + 'px';
     el.style.top = rowEl.offsetTop + 'px';
     el.style.width = m.w + 'px';
     el.style.height = rowEl.offsetHeight + 'px';
@@ -332,7 +349,16 @@ export async function render(root, ctx) {
     // 描画済み行数を超えている初期化タイミング) に呼ばれると、位置を 0,0 に
     // 倒して左上へ flash する。その場合は更新せず直前の正しい位置を維持する。
     if (!rowEl) return;
+    const composing = el.classList.contains('composing');
+    // 通常は「行頭 offsetLeft + 列 × セル幅」で重ねる (厳密 monospace 前提)。
+    // 変換中は未確定文字列を確定済みテキストに密着させたいので、実描画右端で
+    // 上限クランプして全角ドリフトぶんの隙間を潰す (renderCursor と同じ補正)。
+    // 候補ウィンドウ追従だけの非変換時は毎フレーム計測を避け列モデルのままにする。
     let left = rowEl.offsetLeft + entry.cursorX * m.w;
+    if (composing) {
+      const cr = rowContentRight(rowEl);
+      if (cr !== null) left = Math.min(left, cr);
+    }
     let top = rowEl.offsetTop - vp.scrollTop;
     // カーソルが scroll で viewport 外にある場合も候補ウィンドウが viewport
     // 近傍に出るよう範囲内にクランプする。
@@ -340,7 +366,7 @@ export async function render(root, ctx) {
     top = Math.max(0, Math.min(top, vp.clientHeight - m.h));
     el.style.left = left + 'px';
     el.style.top = top + 'px';
-    if (el.classList.contains('composing')) {
+    if (composing) {
       // 変換中はカーソル位置から viewport 右端までを未確定文字列の表示域に使う。
       // wrap="off" のため右端を超えた分は textarea 内の水平スクロールに任せる。
       el.style.width = Math.max(m.w * 2, vp.clientWidth - left) + 'px';
