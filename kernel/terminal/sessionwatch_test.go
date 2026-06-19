@@ -38,7 +38,9 @@ func TestWatchNewSession_DetectsNewID(t *testing.T) {
 	var mu sync.Mutex
 	done := make(chan struct{})
 	go func() {
-		WatchNewSession(det, ".", nil, func(sid string) { mu.Lock(); got = sid; mu.Unlock() }, make(chan struct{}))
+		WatchNewSession(det, ".", func(sid string) bool {
+			mu.Lock(); got = sid; mu.Unlock(); return true
+		}, make(chan struct{}))
 		close(done)
 	}()
 
@@ -68,10 +70,12 @@ func TestWatchNewSession_PicksNewestUnclaimed(t *testing.T) {
 	var mu sync.Mutex
 	done := make(chan struct{})
 	go func() {
-		WatchNewSession(det, ".",
-			func(s string) bool { return claimed[s] },
-			func(sid string) { mu.Lock(); got = sid; mu.Unlock() },
-			make(chan struct{}))
+		WatchNewSession(det, ".", func(sid string) bool {
+			if claimed[sid] {
+				return false
+			}
+			mu.Lock(); got = sid; mu.Unlock(); return true
+		}, make(chan struct{}))
 		close(done)
 	}()
 
@@ -96,7 +100,7 @@ func TestWatchNewSession_StopCancels(t *testing.T) {
 	assigned := false
 	done := make(chan struct{})
 	go func() {
-		WatchNewSession(det, ".", nil, func(string) { assigned = true }, stop)
+		WatchNewSession(det, ".", func(string) bool { assigned = true; return true }, stop)
 		close(done)
 	}()
 	close(stop)
@@ -113,7 +117,8 @@ func TestWatchNewSession_StopCancels(t *testing.T) {
 func TestWatchNewSession_NonDetectorNoop(t *testing.T) {
 	withFastWatch(t)
 	// SessionDetector を満たさない Agent は即 return（panic/blocking しない）。
-	WatchNewSession(ConfigAgent{AgentName: "x", Binary: "x"}, ".", nil, func(string) {
+	WatchNewSession(ConfigAgent{AgentName: "x", Binary: "x"}, ".", func(string) bool {
 		t.Fatal("should not assign for non-detector agent")
+		return false
 	}, make(chan struct{}))
 }

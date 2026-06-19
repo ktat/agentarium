@@ -10,16 +10,16 @@ var (
 )
 
 // WatchNewSession は ag が SessionDetector のとき、起動直後に出現した新規セッション
-// 識別子を検出して assign に渡す（出力非依存）。
+// 識別子を検出して tryAssign に渡す（出力非依存）。
 //
-// 仕組み: 起動前の識別子集合を控え、以後ポーリングして「起動前に無く、かつ未割当
-// （claimed が false）」な識別子のうち最も新しいものを 1 つ確定する。検出成功・
-// stop クローズ・SessionWatchTimeout 経過のいずれかで終了する。
+// 仕組み: 起動前の識別子集合を控え、以後ポーリングして新規識別子を tryAssign に渡す。
+// tryAssign は claim と assign を単一ロック下でアトミックに行い、成功なら true を返す。
+// 検出成功・stop クローズ・SessionWatchTimeout 経過のいずれかで終了する。
 //
-//   - claimed: 既に別 terminal に割当済みの識別子を弾く述語（nil 可）。同一 workDir で
-//     並行起動したときに取り違えないためのガード。
-//   - assign:  確定した識別子で 1 度だけ呼ばれる（通常 registry.SetSessionID へ橋渡し）。
-func WatchNewSession(ag Agent, workDir string, claimed func(string) bool, assign func(sessionID string), stop <-chan struct{}) {
+// ベースラインを自動取得するため、呼び出し前に Process.Start() が実行されていると
+// 起動直後に作られたセッション識別子を取りこぼす可能性がある。
+// 起動前にベースラインを確保する必要がある場合は WatchNewSessionFromBaseline を使うこと。
+func WatchNewSession(ag Agent, workDir string, tryAssign func(sessionID string) bool, stop <-chan struct{}) {
 	det, ok := ag.(SessionDetector)
 	if !ok {
 		return
@@ -28,6 +28,13 @@ func WatchNewSession(ag Agent, workDir string, claimed func(string) bool, assign
 	for _, s := range det.ListSessionIDs(workDir) {
 		before[s] = true
 	}
+	WatchNewSessionFromBaseline(det, workDir, before, tryAssign, stop)
+}
+
+// WatchNewSessionFromBaseline は呼び出し元が事前に取得した before ベースラインを使って
+// 新規セッション識別子を検出し tryAssign に渡す。
+// Process.Start() 前にベースラインを取得することで、起動直後のセッション識別子も検出できる。
+func WatchNewSessionFromBaseline(det SessionDetector, workDir string, before map[string]bool, tryAssign func(sessionID string) bool, stop <-chan struct{}) {
 	ticker := time.NewTicker(SessionWatchInterval)
 	defer ticker.Stop()
 	deadline := time.After(SessionWatchTimeout)
@@ -42,11 +49,12 @@ func WatchNewSession(ag Agent, workDir string, claimed func(string) bool, assign
 				if sid == "" || before[sid] {
 					continue
 				}
-				if claimed != nil && claimed(sid) {
-					continue
+				if tryAssign == nil {
+					return
 				}
-				assign(sid)
-				return
+				if tryAssign(sid) {
+					return
+				}
 			}
 		}
 	}

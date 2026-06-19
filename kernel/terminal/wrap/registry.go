@@ -167,6 +167,21 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 		ent.SessionID = req.Resume
 		r.sessionIndex[req.Resume] = id
 	}
+	// fresh 起動かつ Agent が SessionDetector なら、Start 前にベースラインを取得する。
+	// Start 後にベースラインを取ると、起動直後に作成されたセッション識別子を取りこぼすため。
+	var (
+		det      terminal.SessionDetector
+		baseline map[string]bool
+	)
+	if req.Resume == "" {
+		if d, ok := ag.(terminal.SessionDetector); ok {
+			det = d
+			baseline = map[string]bool{}
+			for _, s := range det.ListSessionIDs(r.workDir) {
+				baseline[s] = true
+			}
+		}
+	}
 	// stop は SetOnExit でクローズし、session 検出ウォッチャを停止させる。
 	stop := make(chan struct{})
 	// SetOnExit BEFORE Start: prevents a race where the process exits immediately
@@ -180,13 +195,28 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 	r.processes[id] = ent
 	r.persistLocked()
 	// fresh 起動かつ Agent が SessionDetector なら、新規セッション識別子を検出して紐付ける。
-	if req.Resume == "" {
-		if _, ok := ag.(terminal.SessionDetector); ok {
-			go terminal.WatchNewSession(ag, r.workDir,
-				func(s string) bool { return r.IDBySessionID(s) != "" },
-				func(s string) { r.SetSessionID(id, s) },
-				stop)
-		}
+	// tryAssign は claim と bind をアトミックに行い、他の goroutine との二重割当を防ぐ。
+	if det != nil {
+		go terminal.WatchNewSessionFromBaseline(det, r.workDir, baseline,
+			func(s string) bool {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				if r.sessionIndex[s] != "" {
+					return false // 既に別 terminal に割当済み
+				}
+				e, ok := r.processes[id]
+				if !ok {
+					return false
+				}
+				if e.SessionID != "" {
+					delete(r.sessionIndex, e.SessionID)
+				}
+				e.SessionID = s
+				r.sessionIndex[s] = id
+				r.persistLocked()
+				return true
+			},
+			stop)
 	}
 	return p, nil
 }
