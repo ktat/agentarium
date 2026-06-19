@@ -151,8 +151,17 @@ func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 }
 
 type saveReq struct {
-	ID     string            `json:"id"`
-	Values map[string]string `json:"values"`
+	ID      string              `json:"id"`
+	Values  map[string]string   `json:"values"`
+	Refs    map[string]string   `json:"refs,omitempty"`    // プラグイン field → カーネルシークレット KEY
+	Secrets []kernelSecretInput `json:"secrets,omitempty"` // Kernel Secrets グループ用
+}
+
+type kernelSecretInput struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Encrypted bool   `json:"encrypted"`
+	Delete    bool   `json:"delete"`
 }
 
 // handleSave は 1 プラグインの設定値を保存する。CSRF は server.New の csrfGuard が
@@ -180,6 +189,33 @@ func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	// Kernel Secrets グループ（動的キー）。
+	if body.ID == secretGroupID {
+		for _, e := range body.Secrets {
+			if e.Key == "" {
+				continue
+			}
+			storeKey := KernelSecretPrefix + e.Key
+			var err error
+			switch {
+			case e.Delete:
+				err = p.store.Delete(storeKey)
+			case e.Encrypted:
+				if e.Value == "" {
+					continue // 空 Secret は既存保持
+				}
+				err = p.store.SetSecret(storeKey, e.Value)
+			default:
+				err = p.store.Set(storeKey, e.Value) // 平文（空も許可）
+			}
+			if err != nil {
+				http.Error(w, "save failed", http.StatusInternalServerError)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	sp := p.findProvider(body.ID)
 	if sp == nil {
 		http.Error(w, "unknown settings plugin", http.StatusBadRequest)
@@ -189,12 +225,39 @@ func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 	for _, f := range sp.SettingsSchema() {
 		schema[f.Key] = f
 	}
+	// 参照 (ref) の保存: schema にある field のみ。参照先カーネルシークレットの存在を検証。
+	for k, ref := range body.Refs {
+		if _, ok := schema[k]; !ok {
+			continue
+		}
+		if ref == "" {
+			continue
+		}
+		if !p.store.Has(KernelSecretPrefix + ref) {
+			http.Error(w, "unknown kernel secret: "+ref, http.StatusBadRequest)
+			return
+		}
+		storeKey := body.ID + "." + k
+		if err := p.store.Set(storeKey+RefSuffix, ref); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+		if err := p.store.Delete(storeKey); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	// literal の保存: ref と排他にするため __ref を消す。
 	for k, v := range body.Values {
 		f, ok := schema[k]
 		if !ok {
 			continue // 未知 key 無視
 		}
 		storeKey := body.ID + "." + k
+		if err := p.store.Delete(storeKey + RefSuffix); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
 		var err error
 		if f.Secret {
 			if v == "" {

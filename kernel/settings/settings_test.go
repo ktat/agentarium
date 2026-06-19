@@ -314,6 +314,82 @@ func TestAssets_HasIndexJS(t *testing.T) {
 	}
 }
 
+func postSave(t *testing.T, sp plugin.Plugin, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	h := findRoute(t, sp, "POST", "/save")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/save", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h(rec, req)
+	return rec
+}
+
+func TestSave_KernelSecretCRUD(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	// 暗号 1 件・平文 1 件を追加
+	rec := postSave(t, sp, `{"id":"secret","secrets":[
+		{"key":"NOTION_TOKEN","value":"tok","encrypted":true},
+		{"key":"REGION","value":"jp","encrypted":false}
+	]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if v, ok := store.Get(settings.KernelSecretPrefix + "NOTION_TOKEN"); !ok || v != "tok" {
+		t.Fatalf("notion token = %q,%v", v, ok)
+	}
+	if !store.IsEncrypted(settings.KernelSecretPrefix + "NOTION_TOKEN") {
+		t.Fatal("NOTION_TOKEN should be encrypted")
+	}
+	if store.IsEncrypted(settings.KernelSecretPrefix + "REGION") {
+		t.Fatal("REGION should be plaintext")
+	}
+	// 削除
+	rec = postSave(t, sp, `{"id":"secret","secrets":[{"key":"REGION","delete":true}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d", rec.Code)
+	}
+	if store.Has(settings.KernelSecretPrefix + "REGION") {
+		t.Fatal("REGION should be deleted")
+	}
+}
+
+func TestSave_PluginRefAndLiteralExclusive(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	_ = store.SetSecret(settings.KernelSecretPrefix+"NOTION_TOKEN", "tok")
+
+	// alpha.token を NOTION_TOKEN 参照に設定
+	rec := postSave(t, sp, `{"id":"alpha","refs":{"token":"NOTION_TOKEN"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("ref save status = %d", rec.Code)
+	}
+	if v, ok := store.Get("alpha.token" + settings.RefSuffix); !ok || v != "NOTION_TOKEN" {
+		t.Fatalf("ref pointer = %q,%v", v, ok)
+	}
+	if store.Has("alpha.token") {
+		t.Fatal("literal alpha.token should be cleared when ref is set")
+	}
+
+	// literal に戻すと __ref が消える
+	rec = postSave(t, sp, `{"id":"alpha","values":{"token":"plainsecret"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("literal save status = %d", rec.Code)
+	}
+	if store.Has("alpha.token" + settings.RefSuffix) {
+		t.Fatal("__ref should be cleared when literal is set")
+	}
+	if v, ok := store.Get("alpha.token"); !ok || v != "plainsecret" {
+		t.Fatalf("literal token = %q,%v", v, ok)
+	}
+}
+
+func TestSave_InvalidRefIs400(t *testing.T) {
+	_, _, sp := newTestEnv(t)
+	rec := postSave(t, sp, `{"id":"alpha","refs":{"token":"NOPE"}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid ref status = %d, want 400", rec.Code)
+	}
+}
+
 func TestSchema_KernelSecretsAndRef(t *testing.T) {
 	_, store, sp := newTestEnv(t)
 	// 平文・暗号のカーネルシークレットを 1 件ずつ
