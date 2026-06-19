@@ -69,6 +69,16 @@ func (a *App) WithSecrets(store *secrets.Store) *App {
 	return a
 }
 
+// PluginSettings は pluginID に束縛した設定リーダーを返す。設定フィールドの
+// literal/カーネルシークレット参照を透過的に解決する。WithSecrets 未設定なら nil。
+// 消費者は自作プラグインのコンストラクタにこれを渡して設定値を読む。
+func (a *App) PluginSettings(pluginID string) *settings.Reader {
+	if a.secrets == nil {
+		return nil
+	}
+	return settings.NewReader(a.secrets, pluginID)
+}
+
 // WithPet は Pet supervisor を opt-in する（/pet/* を mount。Run 時に autostart）。
 func (a *App) WithPet(p *pet.Supervisor) *App {
 	a.pet = p
