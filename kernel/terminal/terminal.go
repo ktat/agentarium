@@ -79,6 +79,7 @@ type SessionInfo struct {
 	ID        string
 	Label     string
 	SessionID string // 旧 UUID 相当（汎用名）
+	AgentName string // この terminal が動かす agent 名（状態検出のパターン解決に使う）
 	State     SessionState
 	Running   bool
 }
@@ -90,6 +91,18 @@ type ObserverHooks interface {
 	OnInput(terminalID string, data []byte)
 	OnOutput(terminalID string, data []byte)
 	Forget(terminalID string)
+}
+
+// StateSetter は状態を書き込める backend/registry。検出器が SetState を叩くための最小 IF。
+// xterm/wrap の Backend/Registry が満たす。消費 IF の TerminalBackend は変更しない。
+type StateSetter interface {
+	SetState(id string, s SessionState, source string)
+}
+
+// ObserverBackend は ObserverHooks を受け取れる backend のオプショナル IF。
+// Service は active backend をこれに型アサートできたときだけ状態検出を有効化する。
+type ObserverBackend interface {
+	SetObserver(ObserverHooks)
 }
 
 // StateListener は entry の状態遷移時に呼ばれる callback。source は "hook"|"pty"|"init"。

@@ -443,6 +443,7 @@ func (r *Registry) List() []terminal.SessionInfo {
 			ID:        id,
 			Label:     e.Label,
 			SessionID: e.SessionID,
+			AgentName: e.AgentName,
 			State:     e.State,
 			Running:   e.Process != nil && e.Process.Running(),
 		})
