@@ -55,7 +55,7 @@ type routedPlugin struct {
 	routes []Route
 }
 
-func (p routedPlugin) Meta() Meta { return Meta{ID: p.id, Title: p.id, Pane: PaneLeft} }
+func (p routedPlugin) Meta() Meta      { return Meta{ID: p.id, Title: p.id, Pane: PaneLeft} }
 func (p routedPlugin) Routes() []Route { return p.routes }
 
 func TestRegister_RejectsInvalidID(t *testing.T) {
@@ -102,5 +102,15 @@ func TestRegister_AcceptsGoodRoutePath(t *testing.T) {
 	r := NewRegistry()
 	if err := r.Register(routedPlugin{id: "p", routes: []Route{{Method: "GET", Path: "/list"}}}); err != nil {
 		t.Fatalf("valid route should be accepted: %v", err)
+	}
+}
+
+func TestRegister_RejectsReservedIDs(t *testing.T) {
+	for _, id := range []string{"secret", "kernel"} {
+		r := NewRegistry()
+		err := r.Register(fakePlugin{id: id})
+		if err == nil {
+			t.Fatalf("id %q should be rejected as reserved", id)
+		}
 	}
 }
