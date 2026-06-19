@@ -62,7 +62,7 @@ board-assistant（agentarium を import する消費者リポ）で、Notion ト
 |---|---|---|---|
 | 既存: カーネル設定（renderer 等） | `kernel.<field>` | 値 | 非暗号 |
 | 既存: プラグイン設定 literal | `<pluginID>.<field>` | 値 | フィールドが Secret なら暗号 |
-| 追加: カーネルシークレット | `secret.<KEY>` | 値 | 常に暗号 |
+| 追加: カーネルシークレット | `secret.<KEY>` | 値 | `encrypted` フラグ次第（暗号 or 平文） |
 | 追加: プラグイン設定 ref | `<pluginID>.<field>.__ref` | 参照先 `<KEY>` | 非暗号 |
 
 - ref の有無で literal/ref を判定する。`__ref` が存在すれば ref、無ければ literal。
@@ -99,7 +99,8 @@ func (a *App) PluginSettings(pluginID string) *settings.Reader
 
 ### スキーマ (`GET /plugins/settings/schema`)
 - 新グループ **"Kernel Secrets"**（`secret`）を返す。`store` 内の `secret.<KEY>` を列挙し、
-  key 一覧と「設定済み」フラグのみ返す（**値は返さない**、既存 Secret と同様）。
+  key 一覧・`encrypted`（暗号化されているか）・「設定済み」フラグを返す。
+  **暗号化シークレットの値は返さない**（既存 Secret と同様）。平文は値を返してよい。
 - 各プラグインの `fieldDTO` に追加:
   - `ref string`（このフィールドが参照している `<KEY>`、無ければ空）
   - 既存 `value`/`set` は literal 用。
@@ -107,8 +108,8 @@ func (a *App) PluginSettings(pluginID string) *settings.Reader
 
 ### 保存 (`POST /plugins/settings/save`)
 - **Kernel Secrets グループ**: key/value の追加・更新・削除を受ける（動的キー）。
-  値は常に `SetSecret`。
-  - 追加/更新: 空値は既存 Secret 同様「空は既存保持」。
+  リクエストの `encrypted` フラグで `SetSecret`（暗号）/`Set`（平文）を選ぶ。
+  - 追加/更新: 空値は暗号項目では「空は既存保持」。平文項目は空値で上書き可。
   - 削除: save リクエスト内で key ごとに `delete: true` を受けて `Delete("secret.<KEY>")` する
     （専用エンドポイントは設けない）。
 - **プラグイングループ**: 各フィールドにつき literal か ref かを受ける。
@@ -128,17 +129,23 @@ func (a *App) PluginSettings(pluginID string) *settings.Reader
    （参照カウントは持たない＝削除をブロックしない。決定済み）。
 3. **予約プレフィックス**: `secret.` / `kernel.` はカーネル用。プラグイン id にこれらを禁止。
 4. **WithSecrets 未設定**: `PluginSettings` は nil を返す。Settings タブの Kernel Secrets も出ない。
-5. **暗号化トグル**: カーネルシークレットは常に暗号化（key/value の `encrypted` フラグは設けない。
-   ユーザー確認済みの「encrypted or not」のうち、共有トークン用途では常に暗号化で十分）。
+5. **暗号化トグル**: カーネルシークレットは作成時に暗号/平文を選べる（`encrypted` フラグ）。
+   暗号項目は値を UI に返さない（`Set` 表示のみ）。平文項目は値を返してよい。
+   暗号/平文の判別には `secrets.Store` に判定用ヘルパ（例 `IsEncrypted(key) bool` と、平文値を
+   読む既存 `Get`）が要る。`Get` は暗号値を透過復号するため、UI へ「平文だけ値を返す」には
+   暗号判定が必要。
 
 ## テスト
 
-- `secrets.Store`: 既存テストは不変。新規キー規約は settings 側でテスト。
+- `secrets.Store`: 新規キー規約は settings 側でテスト。追加する `IsEncrypted` は下記で別途。
 - `kernel/settings`:
   - `Reader.Get`: literal 解決 / ref 解決 / ダングリング → `("",false)` / 未設定。
   - literal⇄ref 切替で `__ref` と literal キーが排他になること。
-  - schema が値を漏らさないこと（Secret 値・カーネルシークレット値を返さない）。
-  - save: 不正 ref で 400、Kernel Secret の add/update/delete。
+  - schema が暗号値を漏らさないこと（Secret 値・暗号カーネルシークレット値を返さない）。
+    平文カーネルシークレットは値を返すこと。
+  - save: 不正 ref で 400、Kernel Secret の add/update/delete、`encrypted` フラグで
+    暗号/平文の保存が分岐すること。
+- `secrets.Store`: `IsEncrypted(key)` が暗号/平文を正しく判定すること。
 - ファサード: `PluginSettings(id)` が id 束縛で正しく解決し、WithSecrets 未設定で nil。
 
 ## README 追従
