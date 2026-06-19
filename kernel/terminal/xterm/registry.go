@@ -2,6 +2,7 @@ package xterm
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"sync"
@@ -138,7 +139,11 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 	}
 	// resume 起動なら session 識別子は既知。即設定して /terminal/list へ反映し、
 	// 逆引き index も張る（再 resume・履歴の再開ボタン有効化のため）。
+	// 既に別 terminal が同一 sessionID を保持している場合はエラーとし、二重オーナーを防ぐ。
 	if req.Resume != "" {
+		if owner := r.sessionIndex[req.Resume]; owner != "" && owner != id {
+			return nil, fmt.Errorf("session %q is already bound to terminal %q", req.Resume, owner)
+		}
 		ent.SessionID = req.Resume
 		r.sessionIndex[req.Resume] = id
 	}
