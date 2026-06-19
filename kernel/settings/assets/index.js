@@ -169,6 +169,11 @@ function showForm(root, pl, secretKeys) {
   h.textContent = pl.title || pl.id;
   root.appendChild(h);
 
+  if (pl.id === 'secret') {
+    renderKernelSecrets(root, pl);
+    return;
+  }
+
   const form = document.createElement('div');
   form.className = 'card';
   const getField = {}; // key → () => {mode:'literal'|'ref', value:string}
@@ -283,3 +288,97 @@ function showForm(root, pl, secretKeys) {
 }
 
 function p(s) { const el = document.createElement('p'); el.className = 'muted'; el.textContent = s; return el; }
+
+// renderKernelSecrets は Kernel Secrets グループ専用 UI。既存キーの更新・削除、新規追加。
+function renderKernelSecrets(root, pl) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const rows = []; // {keyInput, valInput, encInput, delInput, existing}
+
+  function addRow(existing) {
+    const wrap = document.createElement('div');
+    wrap.style.margin = '6px 0';
+
+    const keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.placeholder = 'KEY';
+    keyInput.value = existing ? existing.key : '';
+    if (existing) keyInput.readOnly = true;
+
+    const valInput = document.createElement('input');
+    const enc = existing ? !!existing.encrypted : true;
+    valInput.type = enc ? 'password' : 'text';
+    if (existing && enc) {
+      valInput.placeholder = '（設定済み・変更時のみ入力）';
+    } else if (existing) {
+      valInput.value = existing.value || '';
+    } else {
+      valInput.placeholder = 'value';
+    }
+
+    const encLabel = document.createElement('label');
+    encLabel.style.margin = '0 8px';
+    const encInput = document.createElement('input');
+    encInput.type = 'checkbox';
+    encInput.checked = enc;
+    if (existing) encInput.disabled = true; // 既存項目の暗号区分は変更不可
+    encLabel.appendChild(encInput);
+    encLabel.appendChild(document.createTextNode(' 暗号化'));
+
+    const delLabel = document.createElement('label');
+    delLabel.style.marginLeft = '8px';
+    const delInput = document.createElement('input');
+    delInput.type = 'checkbox';
+    delLabel.appendChild(delInput);
+    delLabel.appendChild(document.createTextNode(' 削除'));
+
+    wrap.appendChild(keyInput);
+    wrap.appendChild(valInput);
+    wrap.appendChild(encLabel);
+    if (existing) wrap.appendChild(delLabel);
+    card.appendChild(wrap);
+    rows.push({ keyInput, valInput, encInput, delInput, existing: !!existing });
+  }
+
+  for (const f of (pl.fields || [])) {
+    addRow({ key: f.key, encrypted: f.encrypted, value: f.value });
+  }
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'run-btn';
+  addBtn.textContent = '+ 追加';
+  addBtn.addEventListener('click', () => addRow(null));
+
+  const save = document.createElement('button');
+  save.className = 'run-btn';
+  save.style.marginLeft = '8px';
+  save.textContent = 'Save';
+  save.addEventListener('click', async () => {
+    const secrets = [];
+    for (const r of rows) {
+      const key = r.keyInput.value.trim();
+      if (!key) continue;
+      if (r.existing && r.delInput.checked) {
+        secrets.push({ key, delete: true });
+        continue;
+      }
+      const entry = { key, value: r.valInput.value, encrypted: r.encInput.checked };
+      // 既存・暗号で値未入力なら送らない（空は既存保持）
+      if (r.existing && r.encInput.checked && r.valInput.value === '') continue;
+      secrets.push(entry);
+    }
+    try {
+      const res = await fetch('/plugins/settings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'secret', secrets }),
+      });
+      if (res.status !== 204) { alert('保存失敗: HTTP ' + res.status); return; }
+      await showList(root);
+    } catch (e) { alert('保存失敗: ' + e); }
+  });
+
+  card.appendChild(addBtn);
+  card.appendChild(save);
+  root.appendChild(card);
+}
