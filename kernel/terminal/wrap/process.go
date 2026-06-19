@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -405,9 +404,7 @@ func (p *Process) readPump() {
 			}
 		}
 		if err != nil {
-			if err != io.EOF {
-				// noisy log を避けるため握りつぶす (Stop 経由で cleanup される)
-			}
+			// io.EOF を含め noisy log を避けるため握りつぶす (Stop 経由で cleanup される)
 			p.cleanup()
 			return
 		}

@@ -1,0 +1,26 @@
+# golangci-lint 設定（v2 形式）
+# インストール: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+# 実行: make lint  （= golangci-lint run ./...）
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # standard セット = errcheck / govet / ineffassign / staticcheck / unused
+  # （staticcheck を中心とした標準構成）
+  default: standard
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # テストでは戻り値チェック漏れを許容（_ = w.Write(...) など）
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  # gofmt / goimports によるフォーマット検査
+  enable:
+    - gofmt
+    - goimports

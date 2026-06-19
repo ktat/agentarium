@@ -71,7 +71,7 @@ export async function render(root, opts) {
 }
 
 function openAgent(pluginId, action, row, index) {
-  const api = window.agentarium;
+  const api = globalThis.agentarium;
   if (!api || typeof api.openAgentTab !== 'function') {
     alert('agentarium host API が利用できません');
     return;

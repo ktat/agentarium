@@ -179,7 +179,7 @@ export async function render(root, ctx) {
     });
     entry.imeEl.addEventListener('paste', (e) => {
       e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData).getData('text');
+      const text = (e.clipboardData || globalThis.clipboardData).getData('text');
       if (!text || !entry.ws || entry.ws.readyState !== 1) return;
       entry.ws.send(JSON.stringify({ type: 'paste', data: text }));
     });
@@ -190,7 +190,7 @@ export async function render(root, ctx) {
       if (e.target.tagName === 'BUTTON') return;
       const t = e.target;
       if (!(t === entry.viewportEl || t.classList.contains('twrap-grid') || t.classList.contains('twrap-line') || t.tagName === 'SPAN')) return;
-      const sel = window.getSelection();
+      const sel = globalThis.getSelection();
       if (sel && sel.toString().length > 0) return;
       // preventScroll: true を付けないと、ime (left:-9999px, top:0) に focus
       // した瞬間にブラウザが要素を viewport に見せようとして scrollTop=0 に
@@ -321,7 +321,7 @@ export async function render(root, ctx) {
     if (!lastEl) { vp.scrollTop = vp.scrollHeight; return; }
     try {
       lastEl.scrollIntoView({ block: 'end', inline: 'nearest' });
-    } catch (e) {
+    } catch {
       // viewport の padding-bottom 等が乗ると scrollHeight ベースだと
       // 余白分だけ下に寄りすぎる。try と意味的に同等になるよう
       // 「lastEl の bottom を viewport の bottom に合わせる」計算で確定する。
@@ -517,7 +517,7 @@ export async function render(root, ctx) {
     };
     ws.onmessage = (ev) => { let msg; try { msg = JSON.parse(ev.data); } catch (_) { return; } applyMessage(msg); };
     ws.onclose = () => { scheduleReconnect(); };
-    ws.onerror = () => { try { ws.close(); } catch (_) {} }; // close → onclose → scheduleReconnect
+    ws.onerror = () => { try { ws.close(); } catch (_) { /* 無視 */ } }; // close → onclose → scheduleReconnect
   }
 
   connect();
@@ -527,8 +527,8 @@ export async function render(root, ctx) {
       userClosed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (entry.pendingRender) { cancelAnimationFrame(entry.pendingRender); entry.pendingRender = 0; }
-      try { entry.ws && entry.ws.close(); } catch (_) {}
-      try { ro.disconnect(); } catch (_) {}
+      try { entry.ws && entry.ws.close(); } catch (_) { /* 無視 */ }
+      try { ro.disconnect(); } catch (_) { /* 無視 */ }
     },
     ready,
   };

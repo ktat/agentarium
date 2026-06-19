@@ -96,8 +96,8 @@ func TestWrapWS_RejectsCrossOrigin(t *testing.T) {
 
 func TestClampResizeDim(t *testing.T) {
 	cases := map[int]int{
-		0:      0,     // 0 はそのまま（backend 既定にフォールバック）
-		-1:     0,     // 負値は 0
+		0:      0, // 0 はそのまま（backend 既定にフォールバック）
+		-1:     0, // 負値は 0
 		80:     80,
 		65535:  65535,
 		65536:  65535, // uint16 上限でクランプ

@@ -1,9 +1,30 @@
 # pepper を埋め込んでビルドする。例: make build PEPPER=$(openssl rand -hex 16)
 PEPPER ?=
 
-.PHONY: build test
+GOLANGCI_LINT ?= $(shell go env GOPATH)/bin/golangci-lint
+DENO ?= deno
+
+.PHONY: build test lint lint-go lint-js hooks
 build:
 	go build -ldflags "-X github.com/ktat/agentarium/kernel/secrets.pepper=$(PEPPER)" -o bin/agentarium ./cmd/agentarium
 
 test:
 	go test -race ./...
+
+# Go + フロント JS の静的解析をまとめて実行
+lint: lint-go lint-js
+
+# Go 静的解析（staticcheck 等を含む。設定は .golangci.yml）
+# 初回: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+lint-go:
+	$(GOLANGCI_LINT) run ./...
+
+# フロント JS の静的解析（設定は deno.json）
+# 初回: curl -fsSL https://deno.land/install.sh | sh
+lint-js:
+	$(DENO) lint
+
+# git hook を有効化（push 前に make lint を実行する .githooks/pre-push）
+hooks:
+	git config core.hooksPath .githooks
+	@echo "git hook を有効化しました（push 前に make lint を実行）。スキップ: git push --no-verify"

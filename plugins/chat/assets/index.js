@@ -75,7 +75,7 @@ export async function render(root) {
       btn.addEventListener('click', () => {
         const summary = btn.dataset.summary || '';
         const label = '↪ ' + (summary.length > 28 ? summary.slice(0, 28) + '…' : summary);
-        window.agentarium.openAgentTab({ key: btn.dataset.id, label: label, resume: btn.dataset.sid });
+        globalThis.agentarium.openAgentTab({ key: btn.dataset.id, label: label, resume: btn.dataset.sid });
       });
     });
     hist.querySelectorAll('button.chat-archive-btn:not([data-bound])').forEach(btn => {
@@ -84,7 +84,7 @@ export async function render(root) {
         btn.disabled = true;
         try {
           await fetch('/plugins/chat/archive?id=' + encodeURIComponent(btn.dataset.id), { method: 'POST' });
-        } catch (_) {}
+        } catch (_) { /* 無視 */ }
         refreshHistory();
       });
     });
@@ -108,7 +108,7 @@ export async function render(root) {
           clearInterval(timer);
           refreshHistory();
         }
-      } catch (_) {}
+      } catch (_) { /* 無視 */ }
     }, 1500);
   }
 
@@ -126,7 +126,7 @@ export async function render(root) {
     } catch (err) { alert('start error: ' + err); return; }
 
     const label = text.length > 28 ? text.slice(0, 28) + '…' : text;
-    window.agentarium.openAgentTab({ key: id, label: label, command: text, autoEnter: true });
+    globalThis.agentarium.openAgentTab({ key: id, label: label, command: text, autoEnter: true });
     input.value = '';
     trackSessionID(id);
     setTimeout(refreshHistory, 800);

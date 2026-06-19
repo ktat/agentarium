@@ -65,7 +65,7 @@ export async function render(root, ctx) {
     ws = new WebSocket(wsProto + '//' + location.host + '/terminal/ws?id=' + encodeURIComponent(ctx.id));
     ws.onmessage = (ev) => {
       let msg;
-      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'output') term.write(msg.data);
     };
     ws.onopen = () => {
@@ -79,7 +79,7 @@ export async function render(root, ctx) {
       resolveReady && resolveReady();
     };
     ws.onclose = () => { scheduleReconnect(); };
-    ws.onerror = () => { try { ws.close(); } catch (_) {} }; // close → onclose → scheduleReconnect
+    ws.onerror = () => { try { ws.close(); } catch (_) { /* 無視 */ } }; // close → onclose → scheduleReconnect
   }
   connect();
 
@@ -104,7 +104,7 @@ export async function render(root, ctx) {
     close() {
       userClosed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      try { ws && ws.close(); } catch (_) {}
+      try { ws && ws.close(); } catch (_) { /* 無視 */ }
       ro.disconnect();
       term.dispose();
     },

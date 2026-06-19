@@ -54,7 +54,7 @@ export async function render(root) {
     btn.className = 'resume-btn';
     btn.addEventListener('click', () => {
       const key = 'session-' + s.uuid;
-      window.agentarium.openAgentTab({
+      globalThis.agentarium.openAgentTab({
         key: key,
         label: shortUUID(s.uuid),
         agent: 'claude',

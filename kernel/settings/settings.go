@@ -82,9 +82,9 @@ type fieldDTO struct {
 	Secret    bool     `json:"secret"`
 	Value     string   `json:"value,omitempty"`
 	Set       bool     `json:"set,omitempty"`
-	Options   []string `json:"options,omitempty"`     // 非空なら UI はラジオで選択させる
-	Encrypted bool     `json:"encrypted,omitempty"`   // Kernel Secrets: 暗号化されているか
-	Ref       string   `json:"ref,omitempty"`         // プラグイン field: 参照先カーネルシークレット KEY
+	Options   []string `json:"options,omitempty"`   // 非空なら UI はラジオで選択させる
+	Encrypted bool     `json:"encrypted,omitempty"` // Kernel Secrets: 暗号化されているか
+	Ref       string   `json:"ref,omitempty"`       // プラグイン field: 参照先カーネルシークレット KEY
 }
 
 type pluginDTO struct {

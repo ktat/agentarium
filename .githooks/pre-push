@@ -1,0 +1,13 @@
+#!/bin/sh
+# push 前に lint を実行する（agentarium）。
+# 有効化: make hooks  （= git config core.hooksPath .githooks）
+# スキップ: git push --no-verify
+#
+# deno を PATH に通していない場合のフォールバック
+if ! command -v deno >/dev/null 2>&1 && [ -x "$HOME/.deno/bin/deno" ]; then
+	PATH="$HOME/.deno/bin:$PATH"
+	export PATH
+fi
+
+echo "[pre-push] make lint を実行中... (スキップ: git push --no-verify)"
+exec make lint
