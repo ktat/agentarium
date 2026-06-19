@@ -15,7 +15,7 @@
 
 ### 3 層構造
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │ アプリプラグイン（特定アプリ固有）  ← このリポには入れない／別リポ │
 ├─────────────────────────────────────────────────────────────┤
@@ -27,7 +27,7 @@
 
 ## ディレクトリレイアウト
 
-```
+```text
 agentarium/
 ├── agentarium.go            # ファサード（App: New/Register/WithTerminal/WithSecrets/WithPet/Run...）
 ├── kernel/
@@ -63,7 +63,8 @@ app.Run("")                                       // "" は既定 127.0.0.1:8780
 ```
 
 `App.Handler()` → `server.New(registry, shell.FS(), opts...)` が `http.ServeMux` を組み立てる。
-`Run` は listener を張り（`AGENTARIUM_ADDR` 上書き可・非ループバックは `AGENTARIUM_ALLOW_PUBLIC=1` が必要）、
+`Run(addr string)` は listener を張る（`addr == ""` なら既定 `127.0.0.1:8780`、非ループバックは `AGENTARIUM_ALLOW_PUBLIC=1` が必要）。
+`AGENTARIUM_ADDR` での上書きは API ではなく参照デモ `cmd/agentarium` 側の慣習（env を読んで `Run` に渡す）。
 `Shutdown` で graceful 停止（Close を実装する backend の goroutine も止める）。
 
 | App メソッド | 役割 |
