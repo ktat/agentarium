@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
@@ -21,6 +22,7 @@ const saveMaxBytes = 64 * 1024
 // カーネル自身の設定（プラグインではない）。Settings タブに "Kernel" グループとして出す。
 const (
 	kernelGroupID = "kernel"
+	secretGroupID = "secret"
 	rendererField = "terminal_renderer"
 	// KeyTerminalRenderer は secrets.Store 上のカーネル renderer 設定キー。
 	// cmd 側がこのキーを読んで active backend を選ぶ。
@@ -75,12 +77,14 @@ func (p *settingsPlugin) Assets() fs.FS {
 }
 
 type fieldDTO struct {
-	Key     string   `json:"key"`
-	Label   string   `json:"label"`
-	Secret  bool     `json:"secret"`
-	Value   string   `json:"value,omitempty"`
-	Set     bool     `json:"set,omitempty"`
-	Options []string `json:"options,omitempty"` // 非空なら UI はラジオで選択させる
+	Key       string   `json:"key"`
+	Label     string   `json:"label"`
+	Secret    bool     `json:"secret"`
+	Value     string   `json:"value,omitempty"`
+	Set       bool     `json:"set,omitempty"`
+	Options   []string `json:"options,omitempty"`     // 非空なら UI はラジオで選択させる
+	Encrypted bool     `json:"encrypted,omitempty"`   // Kernel Secrets: 暗号化されているか
+	Ref       string   `json:"ref,omitempty"`         // プラグイン field: 参照先カーネルシークレット KEY
 }
 
 type pluginDTO struct {
@@ -92,12 +96,32 @@ type pluginDTO struct {
 // handleSchema は設定を持つプラグイン一覧を表示状態で返す。Secret 値は返さない。
 func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 	out := make([]pluginDTO, 0)
-	// カーネル自身の設定グループを先頭に出す（プラグインではない）。
+	// カーネル自身の設定グループ（プラグインではない）。
 	rendererDTO := fieldDTO{Key: rendererField, Label: "Terminal renderer（変更は再起動で反映）", Options: rendererOptions}
 	if v, ok := p.store.Get(KeyTerminalRenderer); ok {
 		rendererDTO.Value = v
 	}
 	out = append(out, pluginDTO{ID: kernelGroupID, Title: "Kernel", Fields: []fieldDTO{rendererDTO}})
+
+	// Kernel Secrets グループと secretKeys 候補を収集する。
+	secretKeys := make([]string, 0)
+	secretFields := make([]fieldDTO, 0)
+	for _, k := range p.store.Keys() {
+		if !strings.HasPrefix(k, KernelSecretPrefix) {
+			continue
+		}
+		name := strings.TrimPrefix(k, KernelSecretPrefix)
+		secretKeys = append(secretKeys, name)
+		f := fieldDTO{Key: name, Label: name, Set: true, Encrypted: p.store.IsEncrypted(k)}
+		if !f.Encrypted { // 平文は値を返してよい
+			if v, ok := p.store.Get(k); ok {
+				f.Value = v
+			}
+		}
+		secretFields = append(secretFields, f)
+	}
+	out = append(out, pluginDTO{ID: secretGroupID, Title: "Kernel Secrets", Fields: secretFields})
+
 	for _, pl := range p.reg.Plugins() {
 		sp, ok := pl.(plugin.SettingsProvider)
 		if !ok {
@@ -111,7 +135,9 @@ func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 		for _, f := range sp.SettingsSchema() {
 			d := fieldDTO{Key: f.Key, Label: f.Label, Secret: f.Secret}
 			storeKey := m.ID + "." + f.Key
-			if f.Secret {
+			if ref, ok := p.store.Get(storeKey + RefSuffix); ok && ref != "" {
+				d.Ref = ref // ref 設定時は literal を表示しない
+			} else if f.Secret {
 				d.Set = p.store.Has(storeKey)
 			} else if v, ok := p.store.Get(storeKey); ok {
 				d.Value = v
@@ -121,7 +147,7 @@ func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 		out = append(out, pluginDTO{ID: m.ID, Title: m.Title, Fields: fields})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"plugins": out})
+	_ = json.NewEncoder(w).Encode(map[string]any{"plugins": out, "secretKeys": secretKeys})
 }
 
 type saveReq struct {

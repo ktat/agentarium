@@ -313,3 +313,74 @@ func TestAssets_HasIndexJS(t *testing.T) {
 		t.Errorf("index.js not found: %v", err)
 	}
 }
+
+func TestSchema_KernelSecretsAndRef(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	// 平文・暗号のカーネルシークレットを 1 件ずつ
+	_ = store.Set(settings.KernelSecretPrefix+"PLAIN_KEY", "plainval")
+	_ = store.SetSecret(settings.KernelSecretPrefix+"SECRET_KEY", "secretval")
+	// alpha.token を SECRET_KEY 参照に
+	_ = store.Set("alpha.token"+settings.RefSuffix, "SECRET_KEY")
+
+	h := findRoute(t, sp, "GET", "/schema")
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest("GET", "/schema", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var resp struct {
+		Plugins []struct {
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Fields []struct {
+				Key       string `json:"key"`
+				Value     string `json:"value"`
+				Set       bool   `json:"set"`
+				Encrypted bool   `json:"encrypted"`
+				Ref       string `json:"ref"`
+			} `json:"fields"`
+		} `json:"plugins"`
+		SecretKeys []string `json:"secretKeys"`
+	}
+	body, _ := io.ReadAll(rec.Body)
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v (body=%s)", err, body)
+	}
+	// secretKeys は接頭辞抜きの 2 件
+	if len(resp.SecretKeys) != 2 {
+		t.Fatalf("secretKeys = %v, want 2", resp.SecretKeys)
+	}
+	for _, k := range resp.SecretKeys {
+		if strings.HasPrefix(k, settings.KernelSecretPrefix) {
+			t.Fatalf("secretKeys should be prefix-stripped, got %q", k)
+		}
+	}
+	// Kernel Secrets グループ: 平文は value を返し、暗号は返さない
+	var foundSecret bool
+	for _, pl := range resp.Plugins {
+		if pl.ID == "secret" {
+			foundSecret = true
+			for _, f := range pl.Fields {
+				if f.Key == "PLAIN_KEY" && f.Value != "plainval" {
+					t.Fatalf("plain kernel secret value = %q, want plainval", f.Value)
+				}
+				if f.Key == "SECRET_KEY" && f.Value != "" {
+					t.Fatalf("encrypted kernel secret value should be hidden, got %q", f.Value)
+				}
+				if f.Key == "SECRET_KEY" && !f.Encrypted {
+					t.Fatal("SECRET_KEY should be marked encrypted")
+				}
+			}
+		}
+		if pl.ID == "alpha" {
+			for _, f := range pl.Fields {
+				if f.Key == "token" && f.Ref != "SECRET_KEY" {
+					t.Fatalf("alpha.token ref = %q, want SECRET_KEY", f.Ref)
+				}
+			}
+		}
+	}
+	if !foundSecret {
+		t.Fatal("Kernel Secrets group (id=secret) missing")
+	}
+}
