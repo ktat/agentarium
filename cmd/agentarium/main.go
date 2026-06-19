@@ -61,6 +61,12 @@ func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
 	return filepath.Join(dir, sessionID+".jsonl")
 }
 
+// ListSessionIDs は現在の claude セッション識別子を新しい順で返す（terminal.SessionDetector）。
+// カーネルが新規起動セッションの UUID 検出（再開用の紐付け）に使う。
+func (claudeAgent) ListSessionIDs(workDir string) []string {
+	return sessions.SessionIDs(workDir)
+}
+
 // claudePermission は claude の許可プロンプト検出パターン。StatePatterns は行ごと/
 // tick ごとに高頻度で呼ばれるため、正規表現はパッケージ変数に切り出して再コンパイルを避ける。
 var claudePermission = regexp.MustCompile(`(?i)do you want to proceed`)

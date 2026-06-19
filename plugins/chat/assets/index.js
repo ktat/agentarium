@@ -95,7 +95,7 @@ export async function render(root) {
     let tries = 0;
     const timer = setInterval(async () => {
       tries++;
-      if (tries > 20) { clearInterval(timer); return; } // 最大 ~20*1.5s
+      if (tries > 40) { clearInterval(timer); return; } // 最大 ~40*1.5s（カーネルの検出窓 45s に合わせる）
       try {
         const res = await fetch('/terminal/list');
         if (!res.ok) return;

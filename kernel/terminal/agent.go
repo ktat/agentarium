@@ -24,6 +24,17 @@ type ResumableAgent interface {
 	ResumeArtifact(workDir, sessionID string) string
 }
 
+// SessionDetector は Agent の任意拡張。起動した自分のセッション識別子を
+// 出力に依存せず列挙できることを表明する（claude なら ~/.claude/projects/<enc>/<uuid>.jsonl）。
+// カーネルは起動直前に現状のセッション集合を控え、起動後にポーリングして新規に
+// 出現した識別子を検出し SetSessionID に渡す（WatchNewSession 参照）。
+// 満たさない Agent ではセッション識別子の自動検出は行われない。
+type SessionDetector interface {
+	Agent
+	// ListSessionIDs は現在 workDir に存在するセッション識別子を新しい順で返す。
+	ListSessionIDs(workDir string) []string
+}
+
 // StatePatterns は Agent ごとの PTY 出力状態検出パラメータ。
 // パターンは terminal 固有でなく agent 固有（各 terminal は自分の agent のものを使う）。
 type StatePatterns struct {
