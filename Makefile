@@ -4,7 +4,7 @@ PEPPER ?=
 GOLANGCI_LINT ?= $(shell go env GOPATH)/bin/golangci-lint
 DENO ?= deno
 
-.PHONY: build test lint lint-go lint-js hooks
+.PHONY: build test lint lint-go lint-js check hooks
 build:
 	go build -ldflags "-X github.com/ktat/agentarium/kernel/secrets.pepper=$(PEPPER)" -o bin/agentarium ./cmd/agentarium
 
@@ -13,6 +13,9 @@ test:
 
 # Go + フロント JS の静的解析をまとめて実行
 lint: lint-go lint-js
+
+# push 前チェック（lint + test）。pre-push hook が呼ぶ
+check: lint test
 
 # Go 静的解析（staticcheck 等を含む。設定は .golangci.yml）
 # 初回: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.1
@@ -25,7 +28,7 @@ lint-go:
 lint-js:
 	$(DENO) lint
 
-# git hook を有効化（push 前に make lint を実行する .githooks/pre-push）
+# git hook を有効化（push 前に make check = lint + test を実行する .githooks/pre-push）
 hooks:
 	git config core.hooksPath .githooks
-	@echo "git hook を有効化しました（push 前に make lint を実行）。スキップ: git push --no-verify"
+	@echo "git hook を有効化しました（push 前に make check = lint + test を実行）。スキップ: git push --no-verify"

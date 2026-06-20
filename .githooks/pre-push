@@ -1,5 +1,5 @@
 #!/bin/sh
-# push 前に lint を実行する（agentarium）。
+# push 前に lint + test を実行する（agentarium）。
 # 有効化: make hooks  （= git config core.hooksPath .githooks）
 # スキップ: git push --no-verify
 #
@@ -9,5 +9,5 @@ if ! command -v deno >/dev/null 2>&1 && [ -x "$HOME/.deno/bin/deno" ]; then
 	export PATH
 fi
 
-echo "[pre-push] make lint を実行中... (スキップ: git push --no-verify)"
-exec make lint
+echo "[pre-push] make check (lint + test) を実行中... (スキップ: git push --no-verify)"
+exec make check
