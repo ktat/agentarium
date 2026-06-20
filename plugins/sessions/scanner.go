@@ -137,7 +137,7 @@ func firstUserMessageSummary(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	// jsonl の 1 行は長くなりうる（assistant の大きな出力等）。バッファを拡げる。
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)

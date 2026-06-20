@@ -1,0 +1,9 @@
+{
+  "//": "deno lint 専用設定（フロント JS の静的解析）。実行: make lint-js",
+  "lint": {
+    "include": ["kernel/", "plugins/"],
+    "exclude": [
+      "**/*.min.js"
+    ]
+  }
+}

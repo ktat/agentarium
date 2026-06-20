@@ -1,5 +1,7 @@
 // xterm renderer: vendored xterm.js を初期化し、WS で raw bytes を双方向にやり取りする。
 // shell の app.js から動的 import され render(root, {id}) が呼ばれる。
+// render は呼び出し側 (app.js) で await される契約上 async（await が無くても署名を保つ）。
+// deno-lint-ignore require-await
 export async function render(root, ctx) {
   // 1) xterm.js が global Terminal として読まれている前提（shell が <script> で読む）
   if (typeof Terminal === 'undefined') {
@@ -65,7 +67,7 @@ export async function render(root, ctx) {
     ws = new WebSocket(wsProto + '//' + location.host + '/terminal/ws?id=' + encodeURIComponent(ctx.id));
     ws.onmessage = (ev) => {
       let msg;
-      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'output') term.write(msg.data);
     };
     ws.onopen = () => {
@@ -79,7 +81,7 @@ export async function render(root, ctx) {
       resolveReady && resolveReady();
     };
     ws.onclose = () => { scheduleReconnect(); };
-    ws.onerror = () => { try { ws.close(); } catch (_) {} }; // close → onclose → scheduleReconnect
+    ws.onerror = () => { try { ws.close(); } catch (_) { /* 無視 */ } }; // close → onclose → scheduleReconnect
   }
   connect();
 
@@ -104,7 +106,7 @@ export async function render(root, ctx) {
     close() {
       userClosed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      try { ws && ws.close(); } catch (_) {}
+      try { ws && ws.close(); } catch (_) { /* 無視 */ }
       ro.disconnect();
       term.dispose();
     },

@@ -39,7 +39,10 @@ func TestWatchNewSession_DetectsNewID(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		WatchNewSession(det, ".", func(sid string) bool {
-			mu.Lock(); got = sid; mu.Unlock(); return true
+			mu.Lock()
+			got = sid
+			mu.Unlock()
+			return true
 		}, make(chan struct{}))
 		close(done)
 	}()
@@ -74,7 +77,10 @@ func TestWatchNewSession_PicksNewestUnclaimed(t *testing.T) {
 			if claimed[sid] {
 				return false
 			}
-			mu.Lock(); got = sid; mu.Unlock(); return true
+			mu.Lock()
+			got = sid
+			mu.Unlock()
+			return true
 		}, make(chan struct{}))
 		close(done)
 	}()

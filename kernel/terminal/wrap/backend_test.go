@@ -82,7 +82,7 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 	if len(routes) != 1 || routes[0].Path != "/ws" || routes[0].Method != "GET" {
 		t.Fatalf("Routes unexpected: %+v", routes)
 	}
-	var _ fs.FS = b.Assets()
+	var _ = b.Assets()
 	if _, err := fs.ReadFile(b.Assets(), "index.js"); err != nil {
 		t.Fatalf("index.js should be embedded: %v", err)
 	}

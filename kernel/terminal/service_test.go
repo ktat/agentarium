@@ -28,8 +28,8 @@ type fakeBackend struct {
 	restoreApplied func(SessionRecord) bool
 }
 
-func (b *fakeBackend) Name() string                                            { return b.name }
-func (b *fakeBackend) Renderer() string                                        { return b.name }
+func (b *fakeBackend) Name() string     { return b.name }
+func (b *fakeBackend) Renderer() string { return b.name }
 func (b *fakeBackend) Start(id, label string, ag Agent, req RunRequest) error {
 	b.starts++
 	b.lastID = id
@@ -39,14 +39,14 @@ func (b *fakeBackend) Stop(id string) error                     { return nil }
 func (b *fakeBackend) Inject(id, text string, enter bool) error { return nil }
 func (b *fakeBackend) SetSessionID(id, sessionID string)        {}
 func (b *fakeBackend) List() []SessionInfo                      { return nil }
-func (b *fakeBackend) AddStateListener(l StateListener) {}
+func (b *fakeBackend) AddStateListener(l StateListener)         {}
 func (b *fakeBackend) Restore(canResume func(SessionRecord) bool) (int, int) {
 	b.restoreCalled = true
 	b.restoreApplied = canResume
 	return 0, 0
 }
 func (b *fakeBackend) Routes() []plugin.Route { return b.routes }
-func (b *fakeBackend) Assets() fs.FS                            { return nil }
+func (b *fakeBackend) Assets() fs.FS          { return nil }
 
 func TestNewService_PicksActiveByName(t *testing.T) {
 	x := &fakeBackend{name: "xterm"}
@@ -591,7 +591,7 @@ func TestService_DetectorDrivesStateFromOutput(t *testing.T) {
 
 type detectFakeAgent struct{}
 
-func (detectFakeAgent) Name() string                              { return "claude" }
+func (detectFakeAgent) Name() string                             { return "claude" }
 func (detectFakeAgent) Invocation(RunRequest) (string, []string) { return "claude", nil }
 func (detectFakeAgent) StatePatterns() StatePatterns {
 	return StatePatterns{

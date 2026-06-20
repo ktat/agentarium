@@ -48,7 +48,7 @@ async function main() {
     leftBar.appendChild(btn);
   }
   await focusFromHash();
-  window.addEventListener('hashchange', focusFromHash);
+  globalThis.addEventListener('hashchange', focusFromHash);
 }
 
 // focusFromHash は location.hash が "#term=<id>" のとき該当 Agent タブを開く/アクティブ化する。
@@ -71,9 +71,9 @@ async function focusFromHash() {
       const hit = items.find((it) => it.ID === id || it.id === id);
       if (hit) label = hit.Label || hit.label || id;
     }
-  } catch (_) {}
-  if (window.agentarium && typeof window.agentarium.openAgentTab === 'function') {
-    window.agentarium.openAgentTab({ key: id, label: label });
+  } catch (_) { /* 無視 */ }
+  if (globalThis.agentarium && typeof globalThis.agentarium.openAgentTab === 'function') {
+    globalThis.agentarium.openAgentTab({ key: id, label: label });
   }
 }
 
@@ -217,10 +217,10 @@ async function closeAgentTab(key) {
   if (!entry) return;
   // サーバ側を Stop
   const qs = new URLSearchParams({ id: key });
-  try { await fetch('/terminal/stop?' + qs.toString(), { method: 'POST' }); } catch (_) {}
+  try { await fetch('/terminal/stop?' + qs.toString(), { method: 'POST' }); } catch (_) { /* 無視 */ }
   // renderer instance のクリーンアップ
   if (entry.instance && typeof entry.instance.close === 'function') {
-    try { entry.instance.close(); } catch (_) {}
+    try { entry.instance.close(); } catch (_) { /* 無視 */ }
   }
   entry.tabEl.remove();
   entry.panelEl.remove();
@@ -348,14 +348,14 @@ function closeViewer(key) {
   const leftMinPx = 160;
   // 右ペインの xterm が 60 cols (≈ 480px) を割らないようにする
   const rightMinPx = 480;
-  window.addEventListener('mousemove', (e) => {
+  globalThis.addEventListener('mousemove', (e) => {
     if (!dragging) return;
     const rect = layout.getBoundingClientRect();
     const leftWidth = e.clientX - rect.left;
     if (leftWidth < leftMinPx || leftWidth > rect.width - rightMinPx) return;
     left.style.flex = '0 0 ' + leftWidth + 'px';
   });
-  window.addEventListener('mouseup', () => {
+  globalThis.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false;
     document.body.style.cursor = '';
@@ -378,14 +378,14 @@ function closeViewer(key) {
     document.body.classList.add('layout-dragging');
     e.preventDefault();
   });
-  window.addEventListener('mousemove', (e) => {
+  globalThis.addEventListener('mousemove', (e) => {
     if (!dragging) return;
     const rect = pane.getBoundingClientRect();
     const topH = e.clientY - rect.top;
     if (topH < 80 || topH > rect.height - 80) return;
     top.style.flex = '0 0 ' + topH + 'px';
   });
-  window.addEventListener('mouseup', () => {
+  globalThis.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false;
     document.body.style.cursor = '';
@@ -422,11 +422,11 @@ setInterval(async () => {
       }
       // "idle" / "pending" はクラスなし
     }
-  } catch (_) {}
+  } catch (_) { /* 無視 */ }
 }, 2500);
 
 // agentarium ホスト API を window に公開
-window.agentarium = {
+globalThis.agentarium = {
   openAgentTab,
   closeAgentTab,
   openViewer,

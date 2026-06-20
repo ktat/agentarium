@@ -26,7 +26,7 @@ export async function render(root) {
   btn.textContent = 'Open Agent tab (demo)';
   btn.addEventListener('click', () => {
     const key = 'agent-demo-' + Date.now();
-    window.agentarium.openAgentTab({
+    globalThis.agentarium.openAgentTab({
       key: key,
       label: 'Agent',
       agent: 'claude',
@@ -39,11 +39,11 @@ export async function render(root) {
   docBtn.style.marginLeft = '8px';
   docBtn.textContent = 'ドキュメント表示';
   docBtn.addEventListener('click', () => {
-    if (!window.agentarium || typeof window.agentarium.openViewer !== 'function') {
+    if (!globalThis.agentarium || typeof globalThis.agentarium.openViewer !== 'function') {
       alert('viewer API が利用できません');
       return;
     }
-    window.agentarium.openViewer({
+    globalThis.agentarium.openViewer({
       key: 'hello-doc',
       title: 'Hello Doc',
       type: 'markdown',

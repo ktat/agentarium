@@ -20,7 +20,8 @@ func TestSessionState_KnownValuesString(t *testing.T) {
 }
 
 func TestSessionState_Comparable(t *testing.T) {
-	if StateIdle != StateIdle {
+	a, b := StateIdle, StateIdle
+	if a != b {
 		t.Fatal("same state should be ==")
 	}
 	if StateIdle == StateRunning {
