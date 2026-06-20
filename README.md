@@ -59,7 +59,7 @@ go run ./cmd/agentarium
 | `Plugin` | `Meta() Meta`（ID / Title / Pane / Order）。必須 | タブボタン生成 |
 | `RouteProvider` | `Routes() []Route` | `/plugins/<id>/...` |
 | `FrontendProvider` | `Assets() fs.FS`（ルートに `index.js`） | `/plugins/<id>/assets/` |
-| `SettingsProvider` | `SettingsSchema() []Field` | Settings 合流（S2 で本格利用） |
+| `SettingsProvider` | `SettingsSchema() []Field` | Settings 合流。各フィールドは直接入力またはカーネルシークレット参照を選べる |
 
 JS / CSS は `embed.FS` の実ファイルとして持ちます（Go const 文字列への埋め込みはしません）。
 
@@ -128,6 +128,40 @@ app.Register(myplugin.New(secrets.Scope(sec, "myplugin"))) // plugin は sc.Get(
 - **脅威モデル**: データファイル単体の漏洩（バックアップ・誤コミット・平文 grep）から Secret を守る。
   ローカル FS 全読（鍵ファイル同時取得）は防がない。鍵ファイルは同期・共有対象から外すこと。
 - 鍵ファイル / pepper を失うと既存 Secret は復号不能（`Get` は未設定扱い）。
+
+#### Kernel Secrets（カーネル共有シークレット）
+
+Settings タブの **「Kernel Secrets」グループ**で、プラグイン横断で共有できるシークレット（API キー等）を管理できる。各エントリは登録時に **暗号化（AES-256-GCM）** または **平文** を選べる。CRUD（追加・編集・削除）は UI から行う。
+
+**設定フィールドの参照モード**
+
+各プラグイン設定フィールドは、値の入力方法として次の 2 モードを選べる:
+
+- **直接入力（literal）**: フィールドに値を直接書く（従来どおり）。
+- **カーネルシークレット参照（ref）**: Kernel Secrets に登録済みのキーを指定する。プラグインが値を読む時点で透過的に解決される。参照先のシークレットが削除された場合（ダングリング参照）は未設定扱いとなる。
+
+**プラグイン向け読み取り API**
+
+```go
+// 消費者 main でプラグインに渡す（WithSecrets 未呼び出しなら nil が返る）
+reader := app.PluginSettings("myplugin") // *settings.Reader
+myplugin.New(reader)
+
+// プラグイン内部（literal / ref を意識せず同じ呼び出しで読める）
+val, ok := reader.Get("NOTION_APP_TOKEN") // ref なら Kernel Secrets から解決。未設定/ダングリングは ok=false
+```
+
+`settings.NewReader(store, pluginID)` で直接構築することもできる（消費者 main が store を渡す場合）。値はキャッシュしない（ref の変更が即時反映される）。
+
+**ストレージキー規約**
+
+| キー | 内容 |
+|---|---|
+| `secret.<KEY>` | Kernel Secret の値（暗号化 or 平文） |
+| `<pluginID>.<field>` | プラグイン設定の直接入力値 |
+| `<pluginID>.<field>.__ref` | プラグイン設定フィールドの参照先カーネルシークレットキー |
+
+プラグイン ID として `secret` / `kernel` は予約済みであり使用できない。
 
 ビルド時に pepper を焼き込む（自分用の private ビルド向け。公開不要）:
 

@@ -313,3 +313,150 @@ func TestAssets_HasIndexJS(t *testing.T) {
 		t.Errorf("index.js not found: %v", err)
 	}
 }
+
+func postSave(t *testing.T, sp plugin.Plugin, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	h := findRoute(t, sp, "POST", "/save")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/save", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h(rec, req)
+	return rec
+}
+
+func TestSave_KernelSecretCRUD(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	// 暗号 1 件・平文 1 件を追加
+	rec := postSave(t, sp, `{"id":"secret","secrets":[
+		{"key":"NOTION_TOKEN","value":"tok","encrypted":true},
+		{"key":"REGION","value":"jp","encrypted":false}
+	]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if v, ok := store.Get(settings.KernelSecretPrefix + "NOTION_TOKEN"); !ok || v != "tok" {
+		t.Fatalf("notion token = %q,%v", v, ok)
+	}
+	if !store.IsEncrypted(settings.KernelSecretPrefix + "NOTION_TOKEN") {
+		t.Fatal("NOTION_TOKEN should be encrypted")
+	}
+	if store.IsEncrypted(settings.KernelSecretPrefix + "REGION") {
+		t.Fatal("REGION should be plaintext")
+	}
+	// 削除
+	rec = postSave(t, sp, `{"id":"secret","secrets":[{"key":"REGION","delete":true}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d", rec.Code)
+	}
+	if store.Has(settings.KernelSecretPrefix + "REGION") {
+		t.Fatal("REGION should be deleted")
+	}
+}
+
+func TestSave_PluginRefAndLiteralExclusive(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	_ = store.SetSecret(settings.KernelSecretPrefix+"NOTION_TOKEN", "tok")
+
+	// alpha.token を NOTION_TOKEN 参照に設定
+	rec := postSave(t, sp, `{"id":"alpha","refs":{"token":"NOTION_TOKEN"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("ref save status = %d", rec.Code)
+	}
+	if v, ok := store.Get("alpha.token" + settings.RefSuffix); !ok || v != "NOTION_TOKEN" {
+		t.Fatalf("ref pointer = %q,%v", v, ok)
+	}
+	if store.Has("alpha.token") {
+		t.Fatal("literal alpha.token should be cleared when ref is set")
+	}
+
+	// literal に戻すと __ref が消える
+	rec = postSave(t, sp, `{"id":"alpha","values":{"token":"plainsecret"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("literal save status = %d", rec.Code)
+	}
+	if store.Has("alpha.token" + settings.RefSuffix) {
+		t.Fatal("__ref should be cleared when literal is set")
+	}
+	if v, ok := store.Get("alpha.token"); !ok || v != "plainsecret" {
+		t.Fatalf("literal token = %q,%v", v, ok)
+	}
+}
+
+func TestSave_InvalidRefIs400(t *testing.T) {
+	_, _, sp := newTestEnv(t)
+	rec := postSave(t, sp, `{"id":"alpha","refs":{"token":"NOPE"}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid ref status = %d, want 400", rec.Code)
+	}
+}
+
+func TestSchema_KernelSecretsAndRef(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	// 平文・暗号のカーネルシークレットを 1 件ずつ
+	_ = store.Set(settings.KernelSecretPrefix+"PLAIN_KEY", "plainval")
+	_ = store.SetSecret(settings.KernelSecretPrefix+"SECRET_KEY", "secretval")
+	// alpha.token を SECRET_KEY 参照に
+	_ = store.Set("alpha.token"+settings.RefSuffix, "SECRET_KEY")
+
+	h := findRoute(t, sp, "GET", "/schema")
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest("GET", "/schema", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var resp struct {
+		Plugins []struct {
+			ID     string `json:"id"`
+			Title  string `json:"title"`
+			Fields []struct {
+				Key       string `json:"key"`
+				Value     string `json:"value"`
+				Set       bool   `json:"set"`
+				Encrypted bool   `json:"encrypted"`
+				Ref       string `json:"ref"`
+			} `json:"fields"`
+		} `json:"plugins"`
+		SecretKeys []string `json:"secretKeys"`
+	}
+	body, _ := io.ReadAll(rec.Body)
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v (body=%s)", err, body)
+	}
+	// secretKeys は接頭辞抜きの 2 件
+	if len(resp.SecretKeys) != 2 {
+		t.Fatalf("secretKeys = %v, want 2", resp.SecretKeys)
+	}
+	for _, k := range resp.SecretKeys {
+		if strings.HasPrefix(k, settings.KernelSecretPrefix) {
+			t.Fatalf("secretKeys should be prefix-stripped, got %q", k)
+		}
+	}
+	// Kernel Secrets グループ: 平文は value を返し、暗号は返さない
+	var foundSecret bool
+	for _, pl := range resp.Plugins {
+		if pl.ID == "secret" {
+			foundSecret = true
+			for _, f := range pl.Fields {
+				if f.Key == "PLAIN_KEY" && f.Value != "plainval" {
+					t.Fatalf("plain kernel secret value = %q, want plainval", f.Value)
+				}
+				if f.Key == "SECRET_KEY" && f.Value != "" {
+					t.Fatalf("encrypted kernel secret value should be hidden, got %q", f.Value)
+				}
+				if f.Key == "SECRET_KEY" && !f.Encrypted {
+					t.Fatal("SECRET_KEY should be marked encrypted")
+				}
+			}
+		}
+		if pl.ID == "alpha" {
+			for _, f := range pl.Fields {
+				if f.Key == "token" && f.Ref != "SECRET_KEY" {
+					t.Fatalf("alpha.token ref = %q, want SECRET_KEY", f.Ref)
+				}
+			}
+		}
+	}
+	if !foundSecret {
+		t.Fatal("Kernel Secrets group (id=secret) missing")
+	}
+}

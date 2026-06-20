@@ -21,6 +21,7 @@ async function showList(root) {
     root.appendChild(p('読み込み失敗: ' + e));
     return;
   }
+  const secretKeys = (data && data.secretKeys) || [];
   const plugins = (data && data.plugins) || [];
   if (plugins.length === 0) {
     root.appendChild(p('設定を持つプラグインはありません'));
@@ -39,7 +40,7 @@ async function showList(root) {
     btn.className = 'run-btn';
     btn.textContent = '⚙';
     btn.title = '設定';
-    btn.addEventListener('click', () => showForm(root, pl));
+    btn.addEventListener('click', () => showForm(root, pl, secretKeys));
     btnCell.appendChild(btn);
     tr.appendChild(btnCell);
     table.appendChild(tr);
@@ -156,7 +157,7 @@ async function renderPetBlock(root) {
   root.appendChild(card);
 }
 
-function showForm(root, pl) {
+function showForm(root, pl, secretKeys) {
   root.textContent = '';
   const back = document.createElement('button');
   back.className = 'run-btn';
@@ -168,9 +169,15 @@ function showForm(root, pl) {
   h.textContent = pl.title || pl.id;
   root.appendChild(h);
 
+  if (pl.id === 'secret') {
+    renderKernelSecrets(root, pl);
+    return;
+  }
+
   const form = document.createElement('div');
   form.className = 'card';
-  const getValue = {}; // key → () => string（フィールド型ごとに値の取り出し方が違う）
+  const getField = {}; // key → () => {mode:'literal'|'ref', value:string}
+  const keys = secretKeys || [];
   for (const f of (pl.fields || [])) {
     const row = document.createElement('div');
     const label = document.createElement('label');
@@ -179,7 +186,7 @@ function showForm(root, pl) {
     row.appendChild(label);
 
     if (Array.isArray(f.options) && f.options.length > 0) {
-      // 選択肢ありはラジオで描画
+      // 選択肢ありはラジオで描画（従来通り、ref 非対応）
       const name = 'opt-' + f.key;
       const radios = [];
       for (const opt of f.options) {
@@ -195,20 +202,58 @@ function showForm(root, pl) {
         row.appendChild(rl);
         radios.push(radio);
       }
-      getValue[f.key] = () => {
+      getField[f.key] = () => {
         const sel = radios.find((r) => r.checked);
-        return sel ? sel.value : '';
+        return { mode: 'literal', value: sel ? sel.value : '' };
       };
     } else {
-      const input = document.createElement('input');
-      input.type = f.secret ? 'password' : 'text';
+      // モード選択: 直接入力 / カーネルシークレット参照
+      const modeSel = document.createElement('select');
+      const optLiteral = document.createElement('option');
+      optLiteral.value = 'literal';
+      optLiteral.textContent = '直接入力';
+      const optRef = document.createElement('option');
+      optRef.value = 'ref';
+      optRef.textContent = 'カーネルシークレット参照';
+      modeSel.appendChild(optLiteral);
+      modeSel.appendChild(optRef);
+
+      const textInput = document.createElement('input');
+      textInput.type = f.secret ? 'password' : 'text';
       if (f.secret) {
-        input.placeholder = f.set ? '（設定済み・変更時のみ入力）' : '';
+        textInput.placeholder = f.set ? '（設定済み・変更時のみ入力）' : '';
       } else {
-        input.value = f.value || '';
+        textInput.value = f.value || '';
       }
-      getValue[f.key] = () => input.value;
-      row.appendChild(input);
+
+      const refSel = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = '（選択）';
+      refSel.appendChild(blank);
+      for (const k of keys) {
+        const o = document.createElement('option');
+        o.value = k;
+        o.textContent = k;
+        if (f.ref === k) o.selected = true;
+        refSel.appendChild(o);
+      }
+
+      const applyMode = () => {
+        const ref = modeSel.value === 'ref';
+        refSel.style.display = ref ? '' : 'none';
+        textInput.style.display = ref ? 'none' : '';
+      };
+      modeSel.value = f.ref ? 'ref' : 'literal';
+      modeSel.addEventListener('change', applyMode);
+      applyMode();
+
+      row.appendChild(modeSel);
+      row.appendChild(textInput);
+      row.appendChild(refSel);
+      getField[f.key] = () => (modeSel.value === 'ref'
+        ? { mode: 'ref', value: refSel.value }
+        : { mode: 'literal', value: textInput.value });
     }
     form.appendChild(row);
   }
@@ -217,12 +262,20 @@ function showForm(root, pl) {
   save.textContent = 'Save';
   save.addEventListener('click', async () => {
     const values = {};
-    for (const k of Object.keys(getValue)) values[k] = getValue[k]();
+    const refs = {};
+    for (const k of Object.keys(getField)) {
+      const r = getField[k]();
+      if (r.mode === 'ref') {
+        if (r.value) refs[k] = r.value;
+      } else {
+        values[k] = r.value;
+      }
+    }
     try {
       const res = await fetch('/plugins/settings/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: pl.id, values }),
+        body: JSON.stringify({ id: pl.id, values, refs }),
       });
       if (res.status !== 204) { alert('保存失敗: HTTP ' + res.status); return; }
       await showList(root);
@@ -235,3 +288,97 @@ function showForm(root, pl) {
 }
 
 function p(s) { const el = document.createElement('p'); el.className = 'muted'; el.textContent = s; return el; }
+
+// renderKernelSecrets は Kernel Secrets グループ専用 UI。既存キーの更新・削除、新規追加。
+function renderKernelSecrets(root, pl) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const rows = []; // {keyInput, valInput, encInput, delInput, existing}
+
+  function addRow(existing) {
+    const wrap = document.createElement('div');
+    wrap.style.margin = '6px 0';
+
+    const keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.placeholder = 'KEY';
+    keyInput.value = existing ? existing.key : '';
+    if (existing) keyInput.readOnly = true;
+
+    const valInput = document.createElement('input');
+    const enc = existing ? !!existing.encrypted : true;
+    valInput.type = enc ? 'password' : 'text';
+    if (existing && enc) {
+      valInput.placeholder = '（設定済み・変更時のみ入力）';
+    } else if (existing) {
+      valInput.value = existing.value || '';
+    } else {
+      valInput.placeholder = 'value';
+    }
+
+    const encLabel = document.createElement('label');
+    encLabel.style.margin = '0 8px';
+    const encInput = document.createElement('input');
+    encInput.type = 'checkbox';
+    encInput.checked = enc;
+    if (existing) encInput.disabled = true; // 既存項目の暗号区分は変更不可
+    encLabel.appendChild(encInput);
+    encLabel.appendChild(document.createTextNode(' 暗号化'));
+
+    const delLabel = document.createElement('label');
+    delLabel.style.marginLeft = '8px';
+    const delInput = document.createElement('input');
+    delInput.type = 'checkbox';
+    delLabel.appendChild(delInput);
+    delLabel.appendChild(document.createTextNode(' 削除'));
+
+    wrap.appendChild(keyInput);
+    wrap.appendChild(valInput);
+    wrap.appendChild(encLabel);
+    if (existing) wrap.appendChild(delLabel);
+    card.appendChild(wrap);
+    rows.push({ keyInput, valInput, encInput, delInput, existing: !!existing });
+  }
+
+  for (const f of (pl.fields || [])) {
+    addRow({ key: f.key, encrypted: f.encrypted, value: f.value });
+  }
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'run-btn';
+  addBtn.textContent = '+ 追加';
+  addBtn.addEventListener('click', () => addRow(null));
+
+  const save = document.createElement('button');
+  save.className = 'run-btn';
+  save.style.marginLeft = '8px';
+  save.textContent = 'Save';
+  save.addEventListener('click', async () => {
+    const secrets = [];
+    for (const r of rows) {
+      const key = r.keyInput.value.trim();
+      if (!key) continue;
+      if (r.existing && r.delInput.checked) {
+        secrets.push({ key, delete: true });
+        continue;
+      }
+      const entry = { key, value: r.valInput.value, encrypted: r.encInput.checked };
+      // 既存・暗号で値未入力なら送らない（空は既存保持）
+      if (r.existing && r.encInput.checked && r.valInput.value === '') continue;
+      secrets.push(entry);
+    }
+    try {
+      const res = await fetch('/plugins/settings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'secret', secrets }),
+      });
+      if (res.status !== 204) { alert('保存失敗: HTTP ' + res.status); return; }
+      await showList(root);
+    } catch (e) { alert('保存失敗: ' + e); }
+  });
+
+  card.appendChild(addBtn);
+  card.appendChild(save);
+  root.appendChild(card);
+}

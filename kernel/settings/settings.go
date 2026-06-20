@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
@@ -21,6 +22,7 @@ const saveMaxBytes = 64 * 1024
 // カーネル自身の設定（プラグインではない）。Settings タブに "Kernel" グループとして出す。
 const (
 	kernelGroupID = "kernel"
+	secretGroupID = "secret"
 	rendererField = "terminal_renderer"
 	// KeyTerminalRenderer は secrets.Store 上のカーネル renderer 設定キー。
 	// cmd 側がこのキーを読んで active backend を選ぶ。
@@ -75,12 +77,14 @@ func (p *settingsPlugin) Assets() fs.FS {
 }
 
 type fieldDTO struct {
-	Key     string   `json:"key"`
-	Label   string   `json:"label"`
-	Secret  bool     `json:"secret"`
-	Value   string   `json:"value,omitempty"`
-	Set     bool     `json:"set,omitempty"`
-	Options []string `json:"options,omitempty"` // 非空なら UI はラジオで選択させる
+	Key       string   `json:"key"`
+	Label     string   `json:"label"`
+	Secret    bool     `json:"secret"`
+	Value     string   `json:"value,omitempty"`
+	Set       bool     `json:"set,omitempty"`
+	Options   []string `json:"options,omitempty"`   // 非空なら UI はラジオで選択させる
+	Encrypted bool     `json:"encrypted,omitempty"` // Kernel Secrets: 暗号化されているか
+	Ref       string   `json:"ref,omitempty"`       // プラグイン field: 参照先カーネルシークレット KEY
 }
 
 type pluginDTO struct {
@@ -92,12 +96,32 @@ type pluginDTO struct {
 // handleSchema は設定を持つプラグイン一覧を表示状態で返す。Secret 値は返さない。
 func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 	out := make([]pluginDTO, 0)
-	// カーネル自身の設定グループを先頭に出す（プラグインではない）。
+	// カーネル自身の設定グループ（プラグインではない）。
 	rendererDTO := fieldDTO{Key: rendererField, Label: "Terminal renderer（変更は再起動で反映）", Options: rendererOptions}
 	if v, ok := p.store.Get(KeyTerminalRenderer); ok {
 		rendererDTO.Value = v
 	}
 	out = append(out, pluginDTO{ID: kernelGroupID, Title: "Kernel", Fields: []fieldDTO{rendererDTO}})
+
+	// Kernel Secrets グループと secretKeys 候補を収集する。
+	secretKeys := make([]string, 0)
+	secretFields := make([]fieldDTO, 0)
+	for _, k := range p.store.Keys() {
+		if !strings.HasPrefix(k, KernelSecretPrefix) {
+			continue
+		}
+		name := strings.TrimPrefix(k, KernelSecretPrefix)
+		secretKeys = append(secretKeys, name)
+		f := fieldDTO{Key: name, Label: name, Set: true, Encrypted: p.store.IsEncrypted(k)}
+		if !f.Encrypted { // 平文は値を返してよい
+			if v, ok := p.store.Get(k); ok {
+				f.Value = v
+			}
+		}
+		secretFields = append(secretFields, f)
+	}
+	out = append(out, pluginDTO{ID: secretGroupID, Title: "Kernel Secrets", Fields: secretFields})
+
 	for _, pl := range p.reg.Plugins() {
 		sp, ok := pl.(plugin.SettingsProvider)
 		if !ok {
@@ -111,7 +135,9 @@ func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 		for _, f := range sp.SettingsSchema() {
 			d := fieldDTO{Key: f.Key, Label: f.Label, Secret: f.Secret}
 			storeKey := m.ID + "." + f.Key
-			if f.Secret {
+			if ref, ok := p.store.Get(storeKey + RefSuffix); ok && ref != "" {
+				d.Ref = ref // ref 設定時は literal を表示しない
+			} else if f.Secret {
 				d.Set = p.store.Has(storeKey)
 			} else if v, ok := p.store.Get(storeKey); ok {
 				d.Value = v
@@ -121,12 +147,21 @@ func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 		out = append(out, pluginDTO{ID: m.ID, Title: m.Title, Fields: fields})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"plugins": out})
+	_ = json.NewEncoder(w).Encode(map[string]any{"plugins": out, "secretKeys": secretKeys})
 }
 
 type saveReq struct {
-	ID     string            `json:"id"`
-	Values map[string]string `json:"values"`
+	ID      string              `json:"id"`
+	Values  map[string]string   `json:"values"`
+	Refs    map[string]string   `json:"refs,omitempty"`    // プラグイン field → カーネルシークレット KEY
+	Secrets []kernelSecretInput `json:"secrets,omitempty"` // Kernel Secrets グループ用
+}
+
+type kernelSecretInput struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Encrypted bool   `json:"encrypted"`
+	Delete    bool   `json:"delete"`
 }
 
 // handleSave は 1 プラグインの設定値を保存する。CSRF は server.New の csrfGuard が
@@ -154,6 +189,33 @@ func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	// Kernel Secrets グループ（動的キー）。
+	if body.ID == secretGroupID {
+		for _, e := range body.Secrets {
+			if e.Key == "" {
+				continue
+			}
+			storeKey := KernelSecretPrefix + e.Key
+			var err error
+			switch {
+			case e.Delete:
+				err = p.store.Delete(storeKey)
+			case e.Encrypted:
+				if e.Value == "" {
+					continue // 空 Secret は既存保持
+				}
+				err = p.store.SetSecret(storeKey, e.Value)
+			default:
+				err = p.store.Set(storeKey, e.Value) // 平文（空も許可）
+			}
+			if err != nil {
+				http.Error(w, "save failed", http.StatusInternalServerError)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	sp := p.findProvider(body.ID)
 	if sp == nil {
 		http.Error(w, "unknown settings plugin", http.StatusBadRequest)
@@ -163,12 +225,39 @@ func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 	for _, f := range sp.SettingsSchema() {
 		schema[f.Key] = f
 	}
+	// 参照 (ref) の保存: schema にある field のみ。参照先カーネルシークレットの存在を検証。
+	for k, ref := range body.Refs {
+		if _, ok := schema[k]; !ok {
+			continue
+		}
+		if ref == "" {
+			continue
+		}
+		if !p.store.Has(KernelSecretPrefix + ref) {
+			http.Error(w, "unknown kernel secret: "+ref, http.StatusBadRequest)
+			return
+		}
+		storeKey := body.ID + "." + k
+		if err := p.store.Set(storeKey+RefSuffix, ref); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+		if err := p.store.Delete(storeKey); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	// literal の保存: ref と排他にするため __ref を消す。
 	for k, v := range body.Values {
 		f, ok := schema[k]
 		if !ok {
 			continue // 未知 key 無視
 		}
 		storeKey := body.ID + "." + k
+		if err := p.store.Delete(storeKey + RefSuffix); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
 		var err error
 		if f.Secret {
 			if v == "" {

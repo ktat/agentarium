@@ -162,3 +162,28 @@ func TestRekeyFile_MigratesSecrets(t *testing.T) {
 	}
 	pepper = old
 }
+
+func TestStore_IsEncrypted(t *testing.T) {
+	s, _, _ := newTempStore(t)
+	_ = s.SetSecret("a.tok", "x")
+	_ = s.Set("a.plain", "y")
+	if !s.IsEncrypted("a.tok") {
+		t.Fatal("secret should be encrypted")
+	}
+	if s.IsEncrypted("a.plain") {
+		t.Fatal("plain should not be encrypted")
+	}
+	if s.IsEncrypted("a.missing") {
+		t.Fatal("missing should be false")
+	}
+}
+
+func TestStore_Keys(t *testing.T) {
+	s, _, _ := newTempStore(t)
+	_ = s.Set("b.x", "1")
+	_ = s.Set("a.y", "2")
+	got := s.Keys()
+	if len(got) != 2 || got[0] != "a.y" || got[1] != "b.x" {
+		t.Fatalf("Keys = %v, want sorted [a.y b.x]", got)
+	}
+}

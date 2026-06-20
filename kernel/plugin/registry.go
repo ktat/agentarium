@@ -11,6 +11,10 @@ import (
 // ルート名前空間 (/plugins/<id>/...) と ServeMux パターンの安全性のため厳格に縛る。
 var validID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
+// reservedIDs はカーネルが内部で使う名前空間（secrets.Store のキー接頭辞
+// "secret."、Settings の "kernel." グループ）と衝突するため禁止する plugin ID。
+var reservedIDs = map[string]bool{"secret": true, "kernel": true}
+
 // invalidPathChar は Route.Path に含めてはいけない文字を判定する。`{`/`}` は
 // net/http の ServeMux でワイルドカード `{name}` と解釈され、空白文字は
 // パターン連結時に不正となる（起動時 panic の原因）。R3。
@@ -43,6 +47,9 @@ func (r *Registry) Register(p Plugin) error {
 	}
 	if !validID.MatchString(id) {
 		return fmt.Errorf("invalid plugin ID %q: must match [a-z0-9][a-z0-9_-]*", id)
+	}
+	if reservedIDs[id] {
+		return fmt.Errorf("reserved plugin ID: %s", id)
 	}
 	if r.ids[id] {
 		return fmt.Errorf("duplicate plugin ID: %s", id)

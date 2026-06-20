@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 )
 
@@ -114,6 +115,26 @@ func (s *Store) Has(key string) bool {
 	defer s.mu.Unlock()
 	_, ok := s.m[key]
 	return ok
+}
+
+// IsEncrypted は key の保存値が暗号化済みか返す。未設定は false。
+func (s *Store) IsEncrypted(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.m[key]
+	return ok && isEncrypted(v)
+}
+
+// Keys は保存済みキーを昇順ソートで返す。
+func (s *Store) Keys() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.m))
+	for k := range s.m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Set は平文で保存し永続化する（非 Secret 項目）。

@@ -128,18 +128,18 @@ func TestValidateAddrLoopback_InvalidAddr(t *testing.T) {
 // terminal package 内の fakeBackend は private なので、この test では自前定義する。
 type fakeBackendForApp struct{}
 
-func (fakeBackendForApp) Name() string                                            { return "xterm" }
-func (fakeBackendForApp) Renderer() string                                        { return "xterm" }
+func (fakeBackendForApp) Name() string     { return "xterm" }
+func (fakeBackendForApp) Renderer() string { return "xterm" }
 func (fakeBackendForApp) Start(id, label string, ag terminal.Agent, req terminal.RunRequest) error {
 	return nil
 }
-func (fakeBackendForApp) Stop(id string) error                     { return nil }
-func (fakeBackendForApp) Inject(id, text string, enter bool) error { return nil }
-func (fakeBackendForApp) SetSessionID(id, sessionID string)        {}
-func (fakeBackendForApp) List() []terminal.SessionInfo             { return nil }
-func (fakeBackendForApp) Routes() []plugin.Route                   { return nil }
-func (fakeBackendForApp) Assets() fs.FS                            { return nil }
-func (fakeBackendForApp) AddStateListener(l terminal.StateListener)                                   {}
+func (fakeBackendForApp) Stop(id string) error                                           { return nil }
+func (fakeBackendForApp) Inject(id, text string, enter bool) error                       { return nil }
+func (fakeBackendForApp) SetSessionID(id, sessionID string)                              {}
+func (fakeBackendForApp) List() []terminal.SessionInfo                                   { return nil }
+func (fakeBackendForApp) Routes() []plugin.Route                                         { return nil }
+func (fakeBackendForApp) Assets() fs.FS                                                  { return nil }
+func (fakeBackendForApp) AddStateListener(l terminal.StateListener)                      {}
 func (fakeBackendForApp) Restore(canResume func(terminal.SessionRecord) bool) (int, int) { return 0, 0 }
 
 func TestApp_WithTerminalRegistersRoutes(t *testing.T) {
@@ -222,7 +222,6 @@ func TestApp_ShutdownBeforeRunIsNoop(t *testing.T) {
 	}
 }
 
-
 func TestWithSecrets_RegistersSettingsPlugin(t *testing.T) {
 	dir := t.TempDir()
 	store, err := secrets.NewStore(filepath.Join(dir, "d.json"), filepath.Join(dir, "k.key"))
@@ -238,5 +237,27 @@ func TestWithSecrets_RegistersSettingsPlugin(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("WithSecrets should register the settings plugin")
+	}
+}
+
+func TestApp_PluginSettings(t *testing.T) {
+	app := New()
+	// WithSecrets 前は nil
+	if app.PluginSettings("eval") != nil {
+		t.Fatal("PluginSettings should be nil before WithSecrets")
+	}
+	dir := t.TempDir()
+	store, err := secrets.NewStore(filepath.Join(dir, "data.json"), filepath.Join(dir, "key"))
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	app.WithSecrets(store)
+	_ = store.Set("eval.NOTION_APP_TOKEN", "v")
+	r := app.PluginSettings("eval")
+	if r == nil {
+		t.Fatal("PluginSettings should be non-nil after WithSecrets")
+	}
+	if v, ok := r.Get("NOTION_APP_TOKEN"); !ok || v != "v" {
+		t.Fatalf("reader get = %q,%v", v, ok)
 	}
 }
