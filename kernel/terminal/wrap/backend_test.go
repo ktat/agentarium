@@ -90,7 +90,9 @@ func TestBackend_RoutesIncludesWS(t *testing.T) {
 
 func TestBackendAssets_HasRendererFiles(t *testing.T) {
 	assets := newBackend().Assets()
-	for _, name := range []string{"index.js", "wrap.css"} {
+	// 同梱フォント (fonts/*.woff2) も embed されること。列モデルの整列に必須で、
+	// 欠けると wrap.css の @font-face が 404 になり全角/罫線がずれる。
+	for _, name := range []string{"index.js", "wrap.css", "fonts/AgentariumTerminalJP-subset.woff2", "fonts/LICENSE"} {
 		if _, err := fs.Stat(assets, name); err != nil {
 			t.Errorf("assets missing %s: %v", name, err)
 		}

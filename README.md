@@ -232,6 +232,13 @@ backend は 2 種類:
 - `xterm`: 生 PTY バイト + xterm.js
 - `wrap`: サーバ側 VT エミュレータ（行差分を JSON で送出）
 
+`wrap` のフロントはカーソル / IME 位置を列モデル（`cursorX × セル幅`）で算出するため、
+全グリフが「半角 1.0× / 全角 2.0×・罫線は半角」で描画される完全等幅フォントを要求する。
+システムフォント（`ui-monospace` 等）はこれを保証できない（プロポーショナル CJK に解決
+されたり、汎用 CJK 等幅が罫線を全角で描く）ため、端末向けフォントを **self-host で同梱**
+する（CDN 不使用 = OSS/オフライン要件）。`kernel/terminal/wrap/assets/fonts/`（UDEV Gothic
+の JP サブセット、OFL 1.1。詳細・帰属・再生成手順は同ディレクトリの `LICENSE` / `README.md`）。
+
 ### 状態検出（Pet 連携）
 
 Agent ターミナルの PTY 出力を観測し、セッション状態（`running` / `awaiting_user` / `idle`）を

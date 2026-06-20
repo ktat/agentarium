@@ -1,8 +1,23 @@
+/* バンドルフォント。grid のカーソル/IME 位置は列モデル (cursorX × セル幅) で
+   算出するため、全グリフが「半角 1.0× / 全角 2.0×、罫線は半角」で描画される
+   完全等幅でないとズレる。システムフォント (ui-monospace 等) はこの比率を保証
+   できない (ui-monospace は環境によりプロポーショナルな CJK に解決、汎用 CJK
+   等幅は罫線を全角で描く)。そこで端末向け等幅フォントを self-host で同梱する
+   (CDN 不使用 = OSS/オフライン要件)。"Agentarium Terminal JP" は UDEV Gothic
+   (OFL 1.1) の JP サブセット。詳細・帰属は fonts/LICENSE 参照。 */
+@font-face {
+  font-family: "Agentarium Terminal JP";
+  src: url("fonts/AgentariumTerminalJP-subset.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
-  /* wrap ターミナルのフォント。列を揃えるため等幅のみ（プロポーショナルは混ぜない）。
-     CJK は等幅 CJK にフォールバックさせ、最後は環境既定の monospace。
-     ここを変えれば viewport / ime / measureCell（CSS 継承で実測）すべてに反映される。 */
-  --twrap-font: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono CJK JP", "Noto Sans Mono", monospace;
+  /* wrap ターミナルのフォント。先頭に同梱の完全等幅フォントを置く。サブセット
+     範囲外の文字 (稀な漢字・絵文字等) だけ後続のシステム等幅へフォールバックする
+     (その文字のみ幅がずれ得るが頻度は低い)。ここを変えれば viewport / ime /
+     measureCell（CSS 継承で実測）すべてに反映される。 */
+  --twrap-font: "Agentarium Terminal JP", "Noto Sans Mono CJK JP", ui-monospace, "DejaVu Sans Mono", "Liberation Mono", monospace;
 }
 .twrap-viewport {
   position: absolute;
