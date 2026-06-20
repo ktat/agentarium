@@ -95,6 +95,11 @@ export async function render(root, ctx) {
   // 5) viewport resize → WS resize
   function sendResize() {
     if (ws.readyState !== WebSocket.OPEN || !fit) return;
+    // 非アクティブ tab は display:none になり termDiv の寸法が 0 (offsetParent も
+    // null) になる。この状態で fit() すると極狭の cols/rows に reflow し、tab 復帰時
+    // に一瞬狭い描画が見えてから戻るちらつきになる。非表示中は送信しない
+    // (表示復帰時に ResizeObserver が再発火して正しく直す)。
+    if (termDiv.offsetParent === null) return;
     fit.fit();
     ws.send(JSON.stringify({ type: 'resize', rows: term.rows, cols: term.cols }));
   }
