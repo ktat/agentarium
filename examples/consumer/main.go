@@ -57,15 +57,6 @@ func main() {
 	}
 	chatStore := store.New[chat.ChatRecord](filepath.Join(dir, "agentarium-consumer", "chat.json"))
 
-	app := agentarium.New()
-	if err := app.Register(
-		hello.Plugin{},      // 同梱（好きなものだけ）
-		chat.New(chatStore), // 同梱: Chat タブ（自由入力→Agent 起動 + 履歴/再開）
-		// mybacklog.Plugin{}, // 自作ワークフロー
-	); err != nil {
-		log.Fatalf("register: %v", err)
-	}
-
 	// Chat タブの「送信」で右ペインに Agent ターミナルを起動するには terminal サービスの結線が要る。
 	// ここでは xterm backend 1 本の最小構成（active backend は Backends[0]、resume 判定は楽観）。
 	agents := terminal.NewAgentRegistry("claude")
@@ -76,6 +67,17 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("terminal service: %v", err)
+	}
+
+	app := agentarium.New()
+	if err := app.Register(
+		hello.Plugin{}, // 同梱（好きなものだけ）
+		// 同梱: Chat タブ（自由入力→Agent 起動 + 履歴/再開）。
+		// WithSessionLookup で terminal の session_id をサーバ側補完し「再開」を確実に有効化する。
+		chat.New(chatStore).WithSessionLookup(svc.SessionID),
+		// mybacklog.Plugin{}, // 自作ワークフロー
+	); err != nil {
+		log.Fatalf("register: %v", err)
 	}
 	app.WithTerminal(svc)
 

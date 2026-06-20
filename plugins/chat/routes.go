@@ -64,9 +64,29 @@ func (p Plugin) handleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleList は GET /plugins/chat/list。レコードを新しい順で返す。
+// session_id 未取得のレコードは lookup（terminal id → session_id）で補完し、
+// 補完できたら永続化する。これによりブラウザのポーリングを取りこぼしても、
+// カーネルが検出済みなら再開ボタンが有効になる。
 func (p Plugin) handleList(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	recs, err := p.store.Load()
+	if err == nil && p.lookup != nil {
+		dirty := false
+		for i := range recs {
+			if recs[i].SessionID != "" {
+				continue
+			}
+			if sid := p.lookup(recs[i].ID); sid != "" {
+				recs[i].SessionID = sid
+				dirty = true
+			}
+		}
+		if dirty {
+			if serr := p.store.Save(recs); serr != nil {
+				log.Printf("plugins/chat: save (session_id backfill): %v", serr)
+			}
+		}
+	}
 	p.mu.Unlock()
 	if err != nil {
 		log.Printf("plugins/chat: load: %v", err)
