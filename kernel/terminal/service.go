@@ -80,6 +80,18 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 // Active は現在選択されている backend を返す。
 func (s *Service) Active() Backend { return s.active }
 
+// SessionID は terminal id に紐づく session 識別子を返す（無ければ空）。
+// プラグインが chat 等の永続レコードへ session_id を補完するために使う。
+// 再起動越しに復元された pending entry も List() に含まれるため逆引きできる。
+func (s *Service) SessionID(id string) string {
+	for _, it := range s.active.List() {
+		if it.ID == id {
+			return it.SessionID
+		}
+	}
+	return ""
+}
+
 // Close は Close() error を実装する全 backend を停止する（wrap backend の
 // warmup / persist goroutine 等）。App.Shutdown から呼ばれ、library 消費者の
 // graceful shutdown で goroutine leak を防ぐ（R1）。Close を持たない backend

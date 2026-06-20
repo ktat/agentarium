@@ -158,6 +158,49 @@ func TestUpdateSetsSessionID(t *testing.T) {
 	}
 }
 
+func TestListFillsSessionIDFromLookup(t *testing.T) {
+	p := newTestPlugin(t)
+	id := seedOne(t, p, "hi")
+
+	// terminal 側で session_id が割り当て済みの状況を lookup で再現する。
+	p = p.WithSessionLookup(func(termID string) string {
+		if termID == id {
+			return "live-sid"
+		}
+		return ""
+	})
+
+	items := listItems(t, p)
+	if len(items) != 1 || items[0].SessionID != "live-sid" {
+		t.Fatalf("want session_id filled from lookup, got %+v", items)
+	}
+
+	// 補完結果は永続化され、以後 lookup が空を返しても保持されること。
+	p = p.WithSessionLookup(func(string) string { return "" })
+	items = listItems(t, p)
+	if len(items) != 1 || items[0].SessionID != "live-sid" {
+		t.Fatalf("filled session_id should persist, got %+v", items)
+	}
+}
+
+func TestListDoesNotOverrideExistingSessionID(t *testing.T) {
+	p := newTestPlugin(t)
+	id := seedOne(t, p, "hi")
+
+	rec := httptest.NewRecorder()
+	routeOf(t, p, "POST", "/update")(rec, httptest.NewRequest("POST", "/update?id="+id+"&session_id=orig", nil))
+	if rec.Code != 204 {
+		t.Fatalf("update status %d", rec.Code)
+	}
+
+	// lookup が別の値を返しても、既存の session_id は上書きしない。
+	p = p.WithSessionLookup(func(string) string { return "other" })
+	items := listItems(t, p)
+	if len(items) != 1 || items[0].SessionID != "orig" {
+		t.Fatalf("existing session_id must not be overridden, got %+v", items)
+	}
+}
+
 func TestArchiveSetsTimestamp(t *testing.T) {
 	p := newTestPlugin(t)
 	id := seedOne(t, p, "hi")

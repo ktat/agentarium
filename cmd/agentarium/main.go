@@ -184,17 +184,6 @@ func runServer() error {
 	}
 	chatStore := store.New[chat.ChatRecord](chatPath)
 
-	app := agentarium.New()
-	if err := app.Register(
-		hello.Plugin{},
-		sessions.New(wd),
-		chat.New(chatStore),
-		manifestPlugin,
-	); err != nil {
-		return err
-	}
-	app.WithSecrets(sec)
-
 	agents := terminal.NewAgentRegistry("claude")
 	agents.Register(claudeAgent{})
 	wrapStorePath, err := terminalStorePath("wrap")
@@ -231,6 +220,19 @@ func runServer() error {
 	if err != nil {
 		return err
 	}
+
+	app := agentarium.New()
+	if err := app.Register(
+		hello.Plugin{},
+		sessions.New(wd),
+		// chat に terminal の session_id 逆引きを注入し、/list 取得時にサーバ側で
+		// session_id を補完する（ブラウザのポーリング取りこぼし対策）。
+		chat.New(chatStore).WithSessionLookup(svc.SessionID),
+		manifestPlugin,
+	); err != nil {
+		return err
+	}
+	app.WithSecrets(sec)
 	app.WithTerminal(svc)
 	app.WithPet(pet.New(sec, svc.EventSubscriberCount))
 	log.Printf("agentarium: active terminal renderer = %q", active)

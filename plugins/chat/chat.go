@@ -25,13 +25,22 @@ type ChatRecord struct {
 
 // Plugin は chat 履歴ストアを保持する同梱プラグイン。
 type Plugin struct {
-	store *store.JSONStore[ChatRecord]
-	mu    *sync.Mutex
+	store  *store.JSONStore[ChatRecord]
+	mu     *sync.Mutex
+	lookup func(terminalID string) string // 任意。terminal id → session_id の逆引き（nil 可）
 }
 
 // New は chat レコードストアを注入して Plugin を構築する。
 // 消費者 main で `chat.New(store.New[chat.ChatRecord](path))` を Register する想定。
 func New(st *store.JSONStore[ChatRecord]) Plugin { return Plugin{store: st, mu: &sync.Mutex{}} }
+
+// WithSessionLookup は terminal id から session 識別子を引く関数を注入した複製を返す。
+// /list 取得時に session_id 未取得のレコードをカーネル側の割当値で補完するために使う
+// （ブラウザのポーリングを取りこぼしても再開ボタンが有効になるようにする）。
+func (p Plugin) WithSessionLookup(fn func(terminalID string) string) Plugin {
+	p.lookup = fn
+	return p
+}
 
 func (p Plugin) Meta() plugin.Meta {
 	return plugin.Meta{ID: "chat", Title: "Chat", Pane: plugin.PaneLeft, Order: 0}
