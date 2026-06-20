@@ -26,6 +26,9 @@ func NewReader(store *secrets.Store, pluginID string) *Reader {
 // なければ literal を返す。未設定・ref 先不在は ("", false)。
 // 注意: 値はキャッシュしないこと。ref は実行中に張り替え/削除され得る。
 func (r *Reader) Get(field string) (string, bool) {
+	if r == nil || r.store == nil {
+		return "", false
+	}
 	base := r.pluginID + "." + field
 	if ref, ok := r.store.Get(base + RefSuffix); ok && ref != "" {
 		return r.store.Get(KernelSecretPrefix + ref)
