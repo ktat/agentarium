@@ -20,6 +20,8 @@ function wsUrl(id) {
   return proto + '//' + location.host + '/terminal/ws?id=' + encodeURIComponent(id);
 }
 
+// render は呼び出し側 (app.js) で await される契約上 async（await が無くても署名を保つ）。
+// deno-lint-ignore require-await
 export async function render(root, ctx) {
   ensureCSS();
   const id = ctx && ctx.id;

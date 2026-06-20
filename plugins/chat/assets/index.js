@@ -10,6 +10,8 @@ function showArchived() {
   return localStorage.getItem(ARCHIVE_KEY) === '1';
 }
 
+// render は呼び出し側 (app.js) で await される契約上 async（await が無くても署名を保つ）。
+// deno-lint-ignore require-await
 export async function render(root) {
   root.innerHTML =
     '<div class="chat-form">' +

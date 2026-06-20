@@ -4,11 +4,6 @@
     "include": ["kernel/", "plugins/"],
     "exclude": [
       "**/*.min.js"
-    ],
-    "rules": {
-      "exclude": [
-        "require-await"
-      ]
-    }
+    ]
   }
 }

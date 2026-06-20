@@ -15,12 +15,13 @@ test:
 lint: lint-go lint-js
 
 # Go 静的解析（staticcheck 等を含む。設定は .golangci.yml）
-# 初回: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+# 初回: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.1
+#   （lint 結果はバージョンで変わるため検証済みバージョンに固定する。更新時はここも上げる）
 lint-go:
 	$(GOLANGCI_LINT) run ./...
 
 # フロント JS の静的解析（設定は deno.json）
-# 初回: curl -fsSL https://deno.land/install.sh | sh
+# 初回: curl -fsSL https://deno.land/install.sh | sh -s v2.8.3  （検証済みバージョン）
 lint-js:
 	$(DENO) lint
 

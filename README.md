@@ -235,9 +235,9 @@ Agent ターミナルの PTY 出力を観測し、セッション状態（`runni
 - テスト: `go test -race ./...`
 - Lint: `make lint`（Go ＋ フロント JS をまとめて実行）
     - `make lint-go`: Go 静的解析。[golangci-lint](https://golangci-lint.run/) v2（`staticcheck`・`govet`・`errcheck`・`ineffassign`・`unused` を含む標準構成。設定は `.golangci.yml`）
-        - 初回のみ: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
+        - 初回のみ: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.1`（検証済みバージョン。lint 結果はバージョン依存のため固定）
     - `make lint-js`: フロント JS 静的解析。[deno lint](https://docs.deno.com/lint/)（設定は `deno.json`。ベンダー済み `*.min.js` は除外）
-        - 初回のみ: `curl -fsSL https://deno.land/install.sh | sh`（`~/.deno/bin` を PATH に通す）
+        - 初回のみ: `curl -fsSL https://deno.land/install.sh | sh -s v2.8.3`（検証済みバージョン。`~/.deno/bin` を PATH に通す）
 - git hook（push 前に `make lint`）:
     - 有効化: `make hooks`（= `git config core.hooksPath .githooks`）。クローンごとに一度実行する
     - フック本体は `.githooks/pre-push`。lint 失敗時は push がブロックされる

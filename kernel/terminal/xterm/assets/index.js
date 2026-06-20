@@ -1,5 +1,7 @@
 // xterm renderer: vendored xterm.js を初期化し、WS で raw bytes を双方向にやり取りする。
 // shell の app.js から動的 import され render(root, {id}) が呼ばれる。
+// render は呼び出し側 (app.js) で await される契約上 async（await が無くても署名を保つ）。
+// deno-lint-ignore require-await
 export async function render(root, ctx) {
   // 1) xterm.js が global Terminal として読まれている前提（shell が <script> で読む）
   if (typeof Terminal === 'undefined') {
