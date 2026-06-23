@@ -239,15 +239,16 @@ async function closeAgentTab(key) {
 // openViewer は右ペイン上部にコンテンツビューアタブを開く。
 //   key:     タブ識別子（同 key 再呼び出しでアクティブ化）
 //   title:   タブ見出し
-//   type:    'markdown'（既定・サーバ描画+サニタイズ）/ 'text'（pre 表示・安全）
+//   type:    'markdown'（既定・サーバ描画+サニタイズ）/ 'text'（pre 表示・安全）/ 'custom'（空パネルを返す）
 //   content: インラインのソース文字列
 //   url:     同一オリジンのパス（content 未指定時に fetch して取得）
+// 戻り値: 当該タブのパネル要素（.viewer-content）。custom はこれに呼び出し側が自由に描画する。
 async function openViewer(opts) {
   const { key, title, type = 'markdown', content, url } = opts || {};
   if (!key) { console.warn('openViewer: key is required'); return; }
   const pane = document.querySelector('.right-pane');
   pane.classList.remove('no-viewer'); // 上下分割を表示
-  if (viewerTabs.has(key)) { activateViewerTab(key); return; }
+  if (viewerTabs.has(key)) { activateViewerTab(key); return viewerTabs.get(key).panelEl; }
 
   const tabBar = document.getElementById('viewer-tab-bar');
   const tabEl = document.createElement('button');
@@ -271,6 +272,11 @@ async function openViewer(opts) {
   viewerTabs.set(key, { tabEl, panelEl });
   activateViewerTab(key);
 
+  // custom: パネルだけ用意して呼び出し側に渡す（プラグインが自由に描画する）
+  if (type === 'custom') {
+    return panelEl;
+  }
+
   // ソース取得
   let src = content;
   if ((src === undefined || src === null) && url) {
@@ -288,7 +294,7 @@ async function openViewer(opts) {
     pre.textContent = src; // 安全
     panelEl.textContent = '';
     panelEl.appendChild(pre);
-    return;
+    return panelEl;
   }
   // markdown: サーバで描画+サニタイズして HTML を受け取る
   try {
@@ -305,6 +311,7 @@ async function openViewer(opts) {
   } catch (e) {
     panelEl.textContent = '描画失敗: ' + e;
   }
+  return panelEl;
 }
 
 function activateViewerTab(key) {
