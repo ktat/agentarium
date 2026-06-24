@@ -405,15 +405,21 @@ function closeViewer(key) {
 
   // toggleEl: クラスを付け外す要素 / cls: 折りたたみクラス / btn: ラベル更新するボタン
   //  labels: [展開時に表示するラベル(=たたむ), たたみ時に表示するラベル(=ひらく)]
-  function setup(toggleEl, cls, btn, key, labels) {
+  //  name: アクセシブルな対象名（例: "左ペイン" / "ターミナル"）
+  function setup(toggleEl, cls, btn, key, labels, name) {
     if (!toggleEl || !btn) return;
     const apply = (collapsed) => {
       toggleEl.classList.toggle(cls, collapsed);
       btn.textContent = collapsed ? labels[1] : labels[0];
-      btn.title = (collapsed ? 'ひらく' : 'たたむ');
+      // 矢印グリフは accessible name にならないため title/aria-label を明示する
+      const desc = name + 'を' + (collapsed ? 'ひらく' : 'たたむ');
+      btn.title = desc;
+      btn.setAttribute('aria-label', desc);
     };
-    // localStorage から初期状態を復元
-    apply(localStorage.getItem(key) === '1');
+    // localStorage から初期状態を復元（制限環境で getItem が throw しても初期化を止めない）
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(key) === '1'; } catch (_) { /* 無視 */ }
+    apply(collapsed);
     // ボタンの mousedown はリサイザのドラッグ開始を発火させない
     btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
     btn.addEventListener('click', (e) => {
@@ -426,8 +432,8 @@ function closeViewer(key) {
     });
   }
 
-  setup(layout, 'left-collapsed', leftBtn, 'agentarium.layout.leftCollapsed', ['◀', '▶']);
-  setup(rightPane, 'bottom-collapsed', bottomBtn, 'agentarium.layout.bottomCollapsed', ['▼', '▲']);
+  setup(layout, 'left-collapsed', leftBtn, 'agentarium.layout.leftCollapsed', ['◀', '▶'], '左ペイン');
+  setup(rightPane, 'bottom-collapsed', bottomBtn, 'agentarium.layout.bottomCollapsed', ['▼', '▲'], 'ターミナル');
 })();
 
 // ===== ターミナルタブ状態ポーリング =====
