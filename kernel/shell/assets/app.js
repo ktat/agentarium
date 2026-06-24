@@ -394,6 +394,48 @@ function closeViewer(key) {
   });
 })();
 
+// ===== ペイン折りたたみトグル（左ペイン / 右下ターミナル） =====
+// リサイザ上のボタンで開閉。状態は localStorage に永続化する。
+// たたんでもリサイザの細い帯は残り、そのボタンで再展開できる。
+(function () {
+  const layout = document.querySelector('.layout');
+  const rightPane = document.querySelector('.right-pane');
+  const leftBtn = document.getElementById('leftCollapseBtn');
+  const bottomBtn = document.getElementById('bottomCollapseBtn');
+
+  // toggleEl: クラスを付け外す要素 / cls: 折りたたみクラス / btn: ラベル更新するボタン
+  //  labels: [展開時に表示するラベル(=たたむ), たたみ時に表示するラベル(=ひらく)]
+  //  name: アクセシブルな対象名（例: "左ペイン" / "ターミナル"）
+  function setup(toggleEl, cls, btn, key, labels, name) {
+    if (!toggleEl || !btn) return;
+    const apply = (collapsed) => {
+      toggleEl.classList.toggle(cls, collapsed);
+      btn.textContent = collapsed ? labels[1] : labels[0];
+      // 矢印グリフは accessible name にならないため title/aria-label を明示する
+      const desc = name + 'を' + (collapsed ? 'ひらく' : 'たたむ');
+      btn.title = desc;
+      btn.setAttribute('aria-label', desc);
+    };
+    // localStorage から初期状態を復元（制限環境で getItem が throw しても初期化を止めない）
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(key) === '1'; } catch (_) { /* 無視 */ }
+    apply(collapsed);
+    // ボタンの mousedown はリサイザのドラッグ開始を発火させない
+    btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const collapsed = !toggleEl.classList.contains(cls);
+      apply(collapsed);
+      try { localStorage.setItem(key, collapsed ? '1' : '0'); } catch (_) { /* 無視 */ }
+      // 表示領域の変化は xterm renderer の ResizeObserver(termDiv) が拾い、
+      // 再展開時に自動で fit するため明示的な再 fit 通知は不要。
+    });
+  }
+
+  setup(layout, 'left-collapsed', leftBtn, 'agentarium.layout.leftCollapsed', ['◀', '▶'], '左ペイン');
+  setup(rightPane, 'bottom-collapsed', bottomBtn, 'agentarium.layout.bottomCollapsed', ['▼', '▲'], 'ターミナル');
+})();
+
 // ===== ターミナルタブ状態ポーリング =====
 // /terminal/list を 2500ms 毎に取得し、term-tab の state クラスを更新する。
 // rightTabs が空のときはフェッチしない。
