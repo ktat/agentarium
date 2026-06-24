@@ -62,9 +62,52 @@ code, .mono {
   border-right: 1px solid var(--border-strong);
 }
 .layout-resizer:hover { background: #cbd5e1; }
+.layout-resizer { position: relative; }
 
 /* resizer ドラッグ中は iframe にマウスイベントを取られないようにする */
 body.layout-dragging .layout iframe { pointer-events: none; }
+
+/* === 折りたたみボタン（リサイザ上に乗る小さなトグル） === */
+.collapse-btn {
+  position: absolute;
+  z-index: 2;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.collapse-btn:hover { background: var(--bg); color: var(--text); }
+/* 左右リサイザ上: 縦長ボタンを上方に配置 */
+.layout-resizer .collapse-btn {
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 26px;
+}
+/* 上下リサイザ上: 横長ボタンを右寄せに配置 */
+.right-resizer { position: relative; }
+.right-resizer .collapse-btn {
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 14px;
+}
+
+/* === 折りたたみ状態 === */
+/* 左ペインをたたむ（layout-resizer の細い帯は残り再展開ハンドルになる） */
+.layout.left-collapsed .left-pane { display: none; }
+/* 右下（ターミナル）をたたむ（right-resizer の帯を残しビューアを全高に） */
+.right-pane.bottom-collapsed .right-bottom { display: none; }
+.right-pane.bottom-collapsed .right-top { flex: 1 1 100%; }
 
 .left-pane {
   flex: 1;
@@ -107,6 +150,10 @@ body.layout-dragging .layout iframe { pointer-events: none; }
 .right-pane.no-viewer .right-top,
 .right-pane.no-viewer .right-resizer { display: none; }
 .right-pane.no-viewer .right-bottom { flex: 1 1 100%; }
+/* ビューアが無いときは bottom-collapsed が残っていてもターミナルを全高で表示する。
+   (no-viewer 時は right-resizer ごと隠れ再展開ボタンも消えるため、たたんだままだと
+    右ペインが空のトラップ状態になる。ビューアが無いのにターミナルをたたむ意味はない) */
+.right-pane.no-viewer.bottom-collapsed .right-bottom { display: flex; }
 
 /* 右上ビューア（ライト基調・ドキュメント表示） */
 .viewer-tab-bar {
