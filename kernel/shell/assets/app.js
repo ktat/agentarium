@@ -6,6 +6,10 @@
 
 const rightTabs = new Map(); // key → {tabEl, panelEl, instance}
 const viewerTabs = new Map(); // key → {tabEl, panelEl}
+const leftTabs = new Map(); // pluginId → {p, btn}
+let currentLeftTab = null;
+let leftBar = null; // 左タブバー（main で代入。activateLeftTab が参照）
+let leftPanel = null; // 左ペインのプラグイン描画先（同上）
 let rendererName = null;
 
 // command 注入のタイミング定数。claude などの TUI は
@@ -31,19 +35,18 @@ async function main() {
   rendererName = await loadRendererName();
   const res = await fetch('/api/plugins');
   const plugins = await res.json();
-  const leftBar = document.getElementById('left-tab-bar');
-  const panel = document.getElementById('panel');
+  leftBar = document.getElementById('left-tab-bar');
+  leftPanel = document.getElementById('panel');
   for (const p of plugins) {
     if (p.pane === 'right') continue; // 右ペインプラグインは agent タブと衝突するため左に統一
     const btn = document.createElement('button');
     btn.className = 'left-tab';
     btn.textContent = p.title;
     btn.dataset.pluginId = p.id;
+    leftTabs.set(p.id, { p, btn });
     btn.addEventListener('click', () => {
-      // active クラスを切り替え
-      leftBar.querySelectorAll('.left-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activate(p, panel);
+      activateLeftTab(p.id);
+      if (location.hash !== '#tab=' + p.id) location.hash = '#tab=' + p.id;
     });
     leftBar.appendChild(btn);
   }
@@ -51,9 +54,32 @@ async function main() {
   globalThis.addEventListener('hashchange', focusFromHash);
 }
 
+// activateLeftTab は pluginId の左タブをアクティブ化し params を render に渡す。未知 id は false。
+async function activateLeftTab(pluginId, params) {
+  const t = leftTabs.get(pluginId);
+  if (!t) return false;
+  leftBar.querySelectorAll('.left-tab').forEach((b) => b.classList.remove('active'));
+  t.btn.classList.add('active');
+  currentLeftTab = pluginId;
+  await activate(t.p, leftPanel, params);
+  return true;
+}
+
 // focusFromHash は location.hash が "#term=<id>" のとき該当 Agent タブを開く/アクティブ化する。
 // Pet の popover クリックが xdg-open する deep-link を処理する。
 async function focusFromHash() {
+  // #tab=<pluginId>: 左タブの deep-link（params は持たない＝プログラム遷移は openTab を使う）
+  const mt = /^#tab=(.+)$/.exec(location.hash || '');
+  if (mt) {
+    let tid;
+    try {
+      tid = decodeURIComponent(mt[1]);
+    } catch (_) {
+      return;
+    }
+    if (tid !== currentLeftTab) await activateLeftTab(tid);
+    return;
+  }
   const m = /^#term=(.+)$/.exec(location.hash || '');
   if (!m) return;
   let id;
@@ -77,12 +103,12 @@ async function focusFromHash() {
   }
 }
 
-async function activate(p, panel) {
+async function activate(p, panel, params) {
   panel.innerHTML = '';
   try {
     const mod = await import('/plugins/' + p.id + '/assets/index.js');
     if (typeof mod.render === 'function') {
-      await mod.render(panel, { pluginId: p.id });
+      await mod.render(panel, { pluginId: p.id, params });
     } else {
       panel.textContent = 'plugin ' + p.id + ' has no render()';
     }
@@ -432,12 +458,22 @@ setInterval(async () => {
   } catch (_) { /* 無視 */ }
 }, 2500);
 
+// openTab は左ペインのプラグインタブをアクティブ化し、params をそのプラグインの
+// render(root, {pluginId, params}) に渡す。未知 pluginId / 右ペインプラグインは false。
+// params はメモリ保持のみ（URL に乗らない＝リロードで失われるため、プラグインは params 不在を許容する）。
+async function openTab(pluginId, params) {
+  const ok = await activateLeftTab(pluginId, params);
+  if (ok && location.hash !== '#tab=' + pluginId) location.hash = '#tab=' + pluginId;
+  return ok;
+}
+
 // agentarium ホスト API を window に公開
 globalThis.agentarium = {
   openAgentTab,
   closeAgentTab,
   openViewer,
   closeViewer,
+  openTab,
   fetch: (path) => fetch(path),
 };
 
