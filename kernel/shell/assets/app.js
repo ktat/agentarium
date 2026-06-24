@@ -6,6 +6,10 @@
 
 const rightTabs = new Map(); // key → {tabEl, panelEl, instance}
 const viewerTabs = new Map(); // key → {tabEl, panelEl}
+const leftTabs = new Map(); // pluginId → {p, btn}
+let currentLeftTab = null;
+let leftBar = null; // 左タブバー（main で代入。activateLeftTab が参照）
+let leftPanel = null; // 左ペインのプラグイン描画先（同上）
 let rendererName = null;
 
 // command 注入のタイミング定数。claude などの TUI は
@@ -31,19 +35,18 @@ async function main() {
   rendererName = await loadRendererName();
   const res = await fetch('/api/plugins');
   const plugins = await res.json();
-  const leftBar = document.getElementById('left-tab-bar');
-  const panel = document.getElementById('panel');
+  leftBar = document.getElementById('left-tab-bar');
+  leftPanel = document.getElementById('panel');
   for (const p of plugins) {
     if (p.pane === 'right') continue; // 右ペインプラグインは agent タブと衝突するため左に統一
     const btn = document.createElement('button');
     btn.className = 'left-tab';
     btn.textContent = p.title;
     btn.dataset.pluginId = p.id;
+    leftTabs.set(p.id, { p, btn });
     btn.addEventListener('click', () => {
-      // active クラスを切り替え
-      leftBar.querySelectorAll('.left-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activate(p, panel);
+      activateLeftTab(p.id);
+      if (location.hash !== '#tab=' + p.id) location.hash = '#tab=' + p.id;
     });
     leftBar.appendChild(btn);
   }
@@ -51,9 +54,32 @@ async function main() {
   globalThis.addEventListener('hashchange', focusFromHash);
 }
 
+// activateLeftTab は pluginId の左タブをアクティブ化し params を render に渡す。未知 id は false。
+async function activateLeftTab(pluginId, params) {
+  const t = leftTabs.get(pluginId);
+  if (!t) return false;
+  leftBar.querySelectorAll('.left-tab').forEach((b) => b.classList.remove('active'));
+  t.btn.classList.add('active');
+  currentLeftTab = pluginId;
+  await activate(t.p, leftPanel, params);
+  return true;
+}
+
 // focusFromHash は location.hash が "#term=<id>" のとき該当 Agent タブを開く/アクティブ化する。
 // Pet の popover クリックが xdg-open する deep-link を処理する。
 async function focusFromHash() {
+  // #tab=<pluginId>: 左タブの deep-link（params は持たない＝プログラム遷移は openTab を使う）
+  const mt = /^#tab=(.+)$/.exec(location.hash || '');
+  if (mt) {
+    let tid;
+    try {
+      tid = decodeURIComponent(mt[1]);
+    } catch (_) {
+      return;
+    }
+    if (tid !== currentLeftTab) await activateLeftTab(tid);
+    return;
+  }
   const m = /^#term=(.+)$/.exec(location.hash || '');
   if (!m) return;
   let id;
@@ -77,12 +103,12 @@ async function focusFromHash() {
   }
 }
 
-async function activate(p, panel) {
+async function activate(p, panel, params) {
   panel.innerHTML = '';
   try {
     const mod = await import('/plugins/' + p.id + '/assets/index.js');
     if (typeof mod.render === 'function') {
-      await mod.render(panel, { pluginId: p.id });
+      await mod.render(panel, { pluginId: p.id, params });
     } else {
       panel.textContent = 'plugin ' + p.id + ' has no render()';
     }
@@ -239,15 +265,16 @@ async function closeAgentTab(key) {
 // openViewer は右ペイン上部にコンテンツビューアタブを開く。
 //   key:     タブ識別子（同 key 再呼び出しでアクティブ化）
 //   title:   タブ見出し
-//   type:    'markdown'（既定・サーバ描画+サニタイズ）/ 'text'（pre 表示・安全）
+//   type:    'markdown'（既定・サーバ描画+サニタイズ）/ 'text'（pre 表示・安全）/ 'custom'（空パネルを返す）
 //   content: インラインのソース文字列
 //   url:     同一オリジンのパス（content 未指定時に fetch して取得）
+// 戻り値: 当該タブのパネル要素（.viewer-content）。custom はこれに呼び出し側が自由に描画する。
 async function openViewer(opts) {
   const { key, title, type = 'markdown', content, url } = opts || {};
   if (!key) { console.warn('openViewer: key is required'); return; }
   const pane = document.querySelector('.right-pane');
   pane.classList.remove('no-viewer'); // 上下分割を表示
-  if (viewerTabs.has(key)) { activateViewerTab(key); return; }
+  if (viewerTabs.has(key)) { activateViewerTab(key); return viewerTabs.get(key).panelEl; }
 
   const tabBar = document.getElementById('viewer-tab-bar');
   const tabEl = document.createElement('button');
@@ -271,6 +298,11 @@ async function openViewer(opts) {
   viewerTabs.set(key, { tabEl, panelEl });
   activateViewerTab(key);
 
+  // custom: パネルだけ用意して呼び出し側に渡す（プラグインが自由に描画する）
+  if (type === 'custom') {
+    return panelEl;
+  }
+
   // ソース取得
   let src = content;
   if ((src === undefined || src === null) && url) {
@@ -288,7 +320,7 @@ async function openViewer(opts) {
     pre.textContent = src; // 安全
     panelEl.textContent = '';
     panelEl.appendChild(pre);
-    return;
+    return panelEl;
   }
   // markdown: サーバで描画+サニタイズして HTML を受け取る
   try {
@@ -305,6 +337,7 @@ async function openViewer(opts) {
   } catch (e) {
     panelEl.textContent = '描画失敗: ' + e;
   }
+  return panelEl;
 }
 
 function activateViewerTab(key) {
@@ -467,12 +500,22 @@ setInterval(async () => {
   } catch (_) { /* 無視 */ }
 }, 2500);
 
+// openTab は左ペインのプラグインタブをアクティブ化し、params をそのプラグインの
+// render(root, {pluginId, params}) に渡す。未知 pluginId / 右ペインプラグインは false。
+// params はメモリ保持のみ（URL に乗らない＝リロードで失われるため、プラグインは params 不在を許容する）。
+async function openTab(pluginId, params) {
+  const ok = await activateLeftTab(pluginId, params);
+  if (ok && location.hash !== '#tab=' + pluginId) location.hash = '#tab=' + pluginId;
+  return ok;
+}
+
 // agentarium ホスト API を window に公開
 globalThis.agentarium = {
   openAgentTab,
   closeAgentTab,
   openViewer,
   closeViewer,
+  openTab,
   fetch: (path) => fetch(path),
 };
 
