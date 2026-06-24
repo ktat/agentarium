@@ -442,6 +442,7 @@ h2:first-child { margin-top: 0; }
   background: var(--surface);
   color: #6b7280;
 }
-.chat-archive-btn:hover { background: var(--bg); color: var(--text); border-color: var(--muted); }
+.chat-archive-btn:hover:not(:disabled) { background: var(--bg); color: var(--text); border-color: var(--muted); }
+.chat-archive-btn:disabled { opacity: .5; cursor: default; }
 
 .row-archived td { color: var(--muted); }
