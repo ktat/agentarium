@@ -28,8 +28,8 @@ type config struct {
 	title    string
 }
 
-// WithTitle はシェル HTML の <title> を上書きする（消費者アプリ名の表示用）。
-// 空のままなら既定（index.html の <title>Agentarium</title>）を使う。
+// WithTitle はシェル HTML の <title> と左上ヘッダ（span.title）を上書きする（消費者アプリ名の表示用）。
+// 空のままなら既定（"Agentarium"）を使う。
 func WithTitle(title string) Option {
 	return func(c *config) { c.title = title }
 }
@@ -104,8 +104,11 @@ func indexHandler(shellFS fs.FS, title string) http.HandlerFunc {
 			return
 		}
 		if title != "" {
-			b = []byte(strings.Replace(string(b), "<title>Agentarium</title>",
-				"<title>"+html.EscapeString(title)+"</title>", 1))
+			esc := html.EscapeString(title)
+			b = []byte(strings.NewReplacer(
+				"<title>Agentarium</title>", "<title>"+esc+"</title>",
+				`<span class="title">Agentarium</span>`, `<span class="title">`+esc+"</span>",
+			).Replace(string(b)))
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)
