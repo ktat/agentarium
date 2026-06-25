@@ -125,7 +125,7 @@ func TestIndex_Served(t *testing.T) {
 func TestIndex_WithTitle_Overrides(t *testing.T) {
 	reg := plugin.NewRegistry()
 	shellFS := fstest.MapFS{
-		"index.html": {Data: []byte("<html><head><title>Agentarium</title></head><body></body></html>")},
+		"index.html": {Data: []byte(`<html><head><title>Agentarium</title></head><body><span class="title">Agentarium</span></body></html>`)},
 	}
 	srv := New(reg, shellFS, WithTitle("EDOCODE Board Assistant"))
 
@@ -137,8 +137,11 @@ func TestIndex_WithTitle_Overrides(t *testing.T) {
 	if !strings.Contains(body, "<title>EDOCODE Board Assistant</title>") {
 		t.Fatalf("title not overridden: %q", body)
 	}
-	if strings.Contains(body, "<title>Agentarium</title>") {
-		t.Fatalf("old title remains: %q", body)
+	if !strings.Contains(body, `<span class="title">EDOCODE Board Assistant</span>`) {
+		t.Fatalf("header span not overridden: %q", body)
+	}
+	if strings.Contains(body, "Agentarium") {
+		t.Fatalf("old name remains: %q", body)
 	}
 }
 
