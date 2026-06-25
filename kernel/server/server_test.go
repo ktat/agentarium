@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/ktat/agentarium/kernel/plugin"
 )
@@ -324,5 +326,26 @@ func TestPluginAssets_NoDirectoryListing(t *testing.T) {
 	srv.ServeHTTP(rec2, req2)
 	if rec2.Code != 200 {
 		t.Fatalf("file should be 200, got %d", rec2.Code)
+	}
+}
+
+func TestEventsPublishSubscribe(t *testing.T) {
+	reg := plugin.NewRegistry()
+	srv := New(reg, newTestShellFS())
+	// publish は 204
+	rec := httptest.NewRecorder()
+	body := strings.NewReader(`{"topic":"x","data":{"a":1}}`)
+	srv.ServeHTTP(rec, httptest.NewRequest("POST", "/events/publish", body))
+	if rec.Code != 204 {
+		t.Fatalf("publish status=%d", rec.Code)
+	}
+	// subscribe エンドポイントが存在し SSE ヘッダを返す（即時 flush 後に context 終了で抜ける）
+	req := httptest.NewRequest("GET", "/events?topic=x", nil)
+	ctx, cancel := context.WithTimeout(req.Context(), 100*time.Millisecond)
+	defer cancel()
+	rec2 := httptest.NewRecorder()
+	srv.ServeHTTP(rec2, req.WithContext(ctx))
+	if ct := rec2.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type=%q", ct)
 	}
 }
