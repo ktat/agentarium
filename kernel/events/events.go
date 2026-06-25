@@ -3,6 +3,7 @@
 package events
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -63,6 +64,13 @@ func (h *Hub) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	data := body.Data
 	if len(data) == 0 {
 		data = []byte("null")
+	} else {
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, data); err != nil {
+			http.Error(w, "invalid publish body", http.StatusBadRequest)
+			return
+		}
+		data = buf.Bytes()
 	}
 	h.Publish(body.Topic, data)
 	w.WriteHeader(http.StatusNoContent)

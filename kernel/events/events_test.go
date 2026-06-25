@@ -93,3 +93,29 @@ func TestHandlePublishBadJSON(t *testing.T) {
 		t.Fatalf("want 400 got %d", rec.Code)
 	}
 }
+
+func TestHandlePublishCompactsMultilineData(t *testing.T) {
+	h := New()
+	ch := h.add("t")
+	defer h.remove(ch)
+	rec := httptest.NewRecorder()
+	body := strings.NewReader("{\"topic\":\"t\",\"data\":{\n  \"a\": 1,\n  \"b\": 2\n}}")
+	h.HandlePublish(rec, httptest.NewRequest("POST", "/events/publish", body))
+	if rec.Code != 204 {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	select {
+	case b := <-ch:
+		s := string(b)
+		// フレームは data: 行 + \n\n の単一行。内部に改行が無いこと。
+		inner := strings.TrimSuffix(strings.TrimPrefix(s, "data: "), "\n\n")
+		if strings.Contains(inner, "\n") {
+			t.Fatalf("frame data must be single-line, got %q", s)
+		}
+		if !strings.Contains(inner, `"a":1`) || !strings.Contains(inner, `"b":2`) {
+			t.Fatalf("compacted json mismatch: %q", inner)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no event")
+	}
+}
