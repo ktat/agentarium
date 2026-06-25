@@ -3,6 +3,7 @@ package server
 
 import (
 	"encoding/json"
+	"html"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -24,6 +25,13 @@ type Option func(*config)
 type config struct {
 	terminal Mountable
 	pet      Mountable
+	title    string
+}
+
+// WithTitle はシェル HTML の <title> を上書きする（消費者アプリ名の表示用）。
+// 空のままなら既定（index.html の <title>Agentarium</title>）を使う。
+func WithTitle(title string) Option {
+	return func(c *config) { c.title = title }
 }
 
 // WithTerminal は terminal.Service を server に統合するオプション。
@@ -66,7 +74,7 @@ func New(reg *plugin.Registry, shellFS fs.FS, opts ...Option) *http.ServeMux {
 	// csrfGuard で cross-origin POST を弾く（render オラクル化防止）。
 	mux.Handle("POST /viewer/render", csrfGuard(viewer.Handler()))
 	mux.Handle("GET /assets/", noDirListing(http.StripPrefix("/assets/", http.FileServer(http.FS(shellFS)))))
-	mux.HandleFunc("GET /{$}", indexHandler(shellFS))
+	mux.HandleFunc("GET /{$}", indexHandler(shellFS, cfg.title))
 	if cfg.terminal != nil {
 		cfg.terminal.MountOn(mux)
 	}
@@ -88,12 +96,16 @@ func noDirListing(h http.Handler) http.Handler {
 	})
 }
 
-func indexHandler(shellFS fs.FS) http.HandlerFunc {
+func indexHandler(shellFS fs.FS, title string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		b, err := fs.ReadFile(shellFS, "index.html")
 		if err != nil {
 			http.Error(w, "index not found", http.StatusInternalServerError)
 			return
+		}
+		if title != "" {
+			b = []byte(strings.Replace(string(b), "<title>Agentarium</title>",
+				"<title>"+html.EscapeString(title)+"</title>", 1))
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)

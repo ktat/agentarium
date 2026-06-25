@@ -122,6 +122,41 @@ func TestIndex_Served(t *testing.T) {
 	}
 }
 
+func TestIndex_WithTitle_Overrides(t *testing.T) {
+	reg := plugin.NewRegistry()
+	shellFS := fstest.MapFS{
+		"index.html": {Data: []byte("<html><head><title>Agentarium</title></head><body></body></html>")},
+	}
+	srv := New(reg, shellFS, WithTitle("EDOCODE Board Assistant"))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "<title>EDOCODE Board Assistant</title>") {
+		t.Fatalf("title not overridden: %q", body)
+	}
+	if strings.Contains(body, "<title>Agentarium</title>") {
+		t.Fatalf("old title remains: %q", body)
+	}
+}
+
+func TestIndex_NoTitle_KeepsDefault(t *testing.T) {
+	reg := plugin.NewRegistry()
+	shellFS := fstest.MapFS{
+		"index.html": {Data: []byte("<html><head><title>Agentarium</title></head></html>")},
+	}
+	srv := New(reg, shellFS) // WithTitle 未指定
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "<title>Agentarium</title>") {
+		t.Fatalf("default title must remain: %q", rec.Body.String())
+	}
+}
+
 func TestShellAssets_Served(t *testing.T) {
 	reg := plugin.NewRegistry()
 	srv := New(reg, newTestShellFS())

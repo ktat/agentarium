@@ -28,6 +28,7 @@ type App struct {
 	terminal *terminal.Service
 	secrets  *secrets.Store
 	pet      *pet.Supervisor
+	title    string
 	mu       sync.Mutex
 	srv      *http.Server
 }
@@ -49,6 +50,13 @@ func (a *App) Register(plugins ...plugin.Plugin) error {
 
 // Registry は生レジストリを返す（脱出口）。
 func (a *App) Registry() *plugin.Registry { return a.reg }
+
+// WithTitle はシェル HTML の <title>（ブラウザタブ名）を上書きする。
+// 未設定なら既定の "Agentarium" のまま。
+func (a *App) WithTitle(title string) *App {
+	a.title = title
+	return a
+}
 
 // WithTerminal は terminal.Service を App に opt-in 登録する。
 // Handler() / Run() で /terminal/* routes が組み込まれる（spec §3.4 D7）。
@@ -95,6 +103,9 @@ func (a *App) Handler() (http.Handler, error) {
 	}
 	if a.pet != nil {
 		opts = append(opts, server.WithPet(a.pet))
+	}
+	if a.title != "" {
+		opts = append(opts, server.WithTitle(a.title))
 	}
 	return server.New(a.reg, shell.FS(), opts...), nil
 }
