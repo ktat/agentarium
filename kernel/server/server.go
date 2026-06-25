@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ktat/agentarium/kernel/events"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/viewer"
 )
@@ -73,6 +74,10 @@ func New(reg *plugin.Registry, shellFS fs.FS, opts ...Option) *http.ServeMux {
 	// ビューア描画ユーティリティ（shell の右ペインビューアが使う）。常時マウント。
 	// csrfGuard で cross-origin POST を弾く（render オラクル化防止）。
 	mux.Handle("POST /viewer/render", csrfGuard(viewer.Handler()))
+	// 汎用イベントバス（カーネル pub/sub）。常時マウント。
+	hub := events.New()
+	mux.Handle("POST /events/publish", csrfGuard(http.HandlerFunc(hub.HandlePublish)))
+	mux.HandleFunc("GET /events", hub.HandleSubscribe)
 	mux.Handle("GET /assets/", noDirListing(http.StripPrefix("/assets/", http.FileServer(http.FS(shellFS)))))
 	mux.HandleFunc("GET /{$}", indexHandler(shellFS, cfg.title))
 	if cfg.terminal != nil {

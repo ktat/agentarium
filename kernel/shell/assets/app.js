@@ -509,6 +509,18 @@ async function openTab(pluginId, params) {
   return ok;
 }
 
+// subscribe は topic の汎用イベント（/events）を購読し、各 data(JSON) を onMessage に渡す。
+// 戻り値の EventSource は呼び出し側が .close() できる。
+function subscribe(topic, onMessage) {
+  const es = new EventSource('/events?topic=' + encodeURIComponent(topic));
+  es.onmessage = (e) => {
+    let data = null;
+    try { data = JSON.parse(e.data); } catch (_) { data = e.data; }
+    try { onMessage(data); } catch (_) { /* 購読側のエラーは握りつぶす */ }
+  };
+  return es;
+}
+
 // agentarium ホスト API を window に公開
 globalThis.agentarium = {
   openAgentTab,
@@ -516,6 +528,7 @@ globalThis.agentarium = {
   openViewer,
   closeViewer,
   openTab,
+  subscribe,
   fetch: (path) => fetch(path),
 };
 
