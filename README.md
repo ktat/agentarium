@@ -194,6 +194,24 @@ agentarium.closeViewer('doc');
 **Notion / Slack 等のアプリ固有ビューアは upstream に含めない。** 消費者リポのアプリプラグインが
 `openViewer` を呼んで実装する（社内 ID・ホスト・認証に依存するため。消費モデルの節を参照）。
 
+### 汎用イベントバス（pub/sub SSE）
+
+任意の消費者が任意の topic でイベントを流し、フロントが購読できる汎用チャネル。
+ターミナル状態の `/terminal/events` とは別物。
+
+- `POST /events/publish`（body `{"topic":"...","data":<any>}`）→ 一致 topic の購読者へ配信。
+  csrfGuard 配下（Origin 不在のローカル curl は許可、cross-origin は拒否）。外部プロセス
+  （例: ローカルで動く Agent / skill）が `curl` で完了通知などを流せる。
+- `GET /events?topic=<t>`（`text/event-stream`）: 一致 topic の publish を `data: <json>\n\n` で配信、
+  15 秒ごとに keepalive。
+- フロント補助: `agentarium.subscribe(topic, onMessage)` → `EventSource` を返す（`.close()` 可能）。
+  各イベントの `data` を JSON.parse して `onMessage` に渡す。
+
+```js
+const es = agentarium.subscribe('my-topic', (data) => console.log(data));
+// 別プロセス: curl -X POST http://127.0.0.1:8780/events/publish -d '{"topic":"my-topic","data":{"ok":1}}'
+```
+
 ### Pet 連携（外部バイナリ）
 
 デスクトップ Pet（マスコット）は **別バイナリ**として実装し、agentarium が公開する契約に従う。
