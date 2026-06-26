@@ -147,6 +147,7 @@ func TestSchema_EnumeratesProvidersOnly(t *testing.T) {
 	}
 	if pl == nil {
 		t.Fatal("alpha group not found in schema")
+		return // staticcheck(SA5011) は t.Fatal の no-return を認識しないため明示
 	}
 
 	fields := make(map[string]struct {
