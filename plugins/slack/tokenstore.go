@@ -87,9 +87,13 @@ func (s *SecretTokenStore) GetAny() (*Token, error) {
 	if len(tf.Workspaces) == 0 {
 		return nil, ErrNoToken
 	}
+	// 最新 ObtainedAt を選ぶ。同一時刻は WorkspaceID 昇順でタイブレークし、
+	// map 反復順への依存（非決定性）を排除する。
 	var newest storedToken
 	for _, st := range tf.Workspaces {
-		if newest.WorkspaceID == "" || st.ObtainedAt.After(newest.ObtainedAt) {
+		if newest.WorkspaceID == "" ||
+			st.ObtainedAt.After(newest.ObtainedAt) ||
+			(st.ObtainedAt.Equal(newest.ObtainedAt) && st.WorkspaceID < newest.WorkspaceID) {
 			newest = st
 		}
 	}

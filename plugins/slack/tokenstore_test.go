@@ -83,3 +83,27 @@ func TestGetAnyReturnsNewest(t *testing.T) {
 		t.Errorf("GetAny TeamName = %q, want NewTeam", got.TeamName)
 	}
 }
+
+// TestGetAnyTieBreaksByWorkspaceID は ObtainedAt が同一の場合に
+// WorkspaceID 昇順で決定的に選ばれることを確認する（map 反復順非依存）。
+func TestGetAnyTieBreaksByWorkspaceID(t *testing.T) {
+	same := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	// 保存順を変えても結果が変わらないこと（決定性）を 2 通りで確認する。
+	for _, order := range [][2]string{{"T_B", "T_A"}, {"T_A", "T_B"}} {
+		ts := NewSecretTokenStore(newTestStore(t))
+		for _, ws := range order {
+			at, _ := NewAccessToken("xoxp-" + ws)
+			if err := ts.Save(&Token{WorkspaceID: WorkspaceID(ws), TeamName: ws, UserID: "U", AccessToken: at, Scope: "x", ObtainedAt: same}); err != nil {
+				t.Fatalf("Save %s: %v", ws, err)
+			}
+		}
+		got, err := ts.GetAny()
+		if err != nil {
+			t.Fatalf("GetAny: %v", err)
+		}
+		if got.WorkspaceID != "T_A" {
+			t.Errorf("save order %v: GetAny WorkspaceID = %q, want T_A (昇順タイブレーク)", order, got.WorkspaceID)
+		}
+	}
+}
