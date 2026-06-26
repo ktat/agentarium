@@ -116,7 +116,7 @@ func (p Plugin) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, successHTML,
+	_, _ = fmt.Fprintf(w, successHTML,
 		html.EscapeString(token.TeamName),
 		html.EscapeString(token.WorkspaceID.String()),
 		html.EscapeString(token.UserID),
@@ -160,7 +160,7 @@ func (p Plugin) handleTokens(w http.ResponseWriter, r *http.Request) {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, errorHTML, html.EscapeString(msg))
+	_, _ = fmt.Fprintf(w, errorHTML, html.EscapeString(msg))
 }
 
 const successHTML = `<!doctype html>

@@ -160,7 +160,7 @@ func (c *APIClient) post(ctx context.Context, method string, v url.Values) ([]by
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return io.ReadAll(resp.Body)
 }
 
