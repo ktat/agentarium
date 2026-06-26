@@ -381,7 +381,15 @@ func (p *Process) buildSnapshot(typ string) WSMessage {
 
 // readPump: PTY → Emulator。emu.Write が同期で ANSI parse して grid を更新。
 func (p *Process) readPump() {
-	r := bufio.NewReader(p.ptmx)
+	// p.ptmx は cleanup() が mu 下で nil 化するため、ここでもロック下に捕捉してから使う
+	// （フィールドへの read/write 競合回避）。以後はローカルの ptmx を使い続ける。
+	p.mu.Lock()
+	ptmx := p.ptmx
+	p.mu.Unlock()
+	if ptmx == nil {
+		return
+	}
+	r := bufio.NewReader(ptmx)
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
@@ -414,7 +422,7 @@ func (p *Process) readPump() {
 // responseLoop: emu の internal pipe (DA1/DA2/DSR 等の応答) を PTY に戻す。
 // これがないと vim 等が DA1 応答待ちで永久 hang。s.mu を握らないこと:
 // readPump (mu 保持中) → emu.Write が pipe full でブロック → ここで mu
-// を取ろうとするとデッドロック。p.ptmx は Start で 1 度設定して以降不変。
+// を取ろうとするとデッドロック。p.ptmx は cleanup() が mu 下で nil 化するため、ここでロック下に捕捉する。
 func (p *Process) responseLoop() {
 	p.mu.Lock()
 	emu := p.emu
