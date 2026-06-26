@@ -84,10 +84,16 @@ func (s *SecretTokenStore) GetAny() (*Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, st := range tf.Workspaces {
-		return st.toToken()
+	if len(tf.Workspaces) == 0 {
+		return nil, ErrNoToken
 	}
-	return nil, ErrNoToken
+	var newest storedToken
+	for _, st := range tf.Workspaces {
+		if newest.WorkspaceID == "" || st.ObtainedAt.After(newest.ObtainedAt) {
+			newest = st
+		}
+	}
+	return newest.toToken()
 }
 
 func (s *SecretTokenStore) Get(id WorkspaceID) (*Token, error) {

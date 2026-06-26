@@ -38,7 +38,13 @@ func newStateStore() *stateStore { return &stateStore{m: make(map[string]time.Ti
 func (s *stateStore) add(state string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.m[state] = time.Now().Add(stateTTL)
+	now := time.Now()
+	for k, exp := range s.m {
+		if now.After(exp) {
+			delete(s.m, k)
+		}
+	}
+	s.m[state] = now.Add(stateTTL)
 }
 
 // consume は state が存在し期限内なら削除して true を返す。期限切れエントリも掃除する。

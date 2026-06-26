@@ -51,3 +51,35 @@ func TestSecretTokenStoreSaveGet(t *testing.T) {
 		t.Errorf("%s should be stored encrypted", tokensKey)
 	}
 }
+
+// TestGetAnyReturnsNewest は GetAny() が ObtainedAt が最新のトークンを返すことを検証する。
+func TestGetAnyReturnsNewest(t *testing.T) {
+	st := newTestStore(t)
+	ts := NewSecretTokenStore(st)
+
+	older := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	at1, _ := NewAccessToken("xoxp-old")
+	tok1 := &Token{WorkspaceID: "T_OLD", TeamName: "OldTeam", UserID: "U1", AccessToken: at1, Scope: "channels:history", ObtainedAt: older}
+	if err := ts.Save(tok1); err != nil {
+		t.Fatalf("Save tok1: %v", err)
+	}
+
+	at2, _ := NewAccessToken("xoxp-new")
+	tok2 := &Token{WorkspaceID: "T_NEW", TeamName: "NewTeam", UserID: "U2", AccessToken: at2, Scope: "channels:history", ObtainedAt: newer}
+	if err := ts.Save(tok2); err != nil {
+		t.Fatalf("Save tok2: %v", err)
+	}
+
+	got, err := ts.GetAny()
+	if err != nil {
+		t.Fatalf("GetAny: %v", err)
+	}
+	if got.WorkspaceID != "T_NEW" {
+		t.Errorf("GetAny WorkspaceID = %q, want T_NEW (newest ObtainedAt)", got.WorkspaceID)
+	}
+	if got.TeamName != "NewTeam" {
+		t.Errorf("GetAny TeamName = %q, want NewTeam", got.TeamName)
+	}
+}

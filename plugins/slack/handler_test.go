@@ -139,6 +139,29 @@ func TestTokensCrossOriginRejected(t *testing.T) {
 	}
 }
 
+// TestStateStoreAddSweepsExpired は add() 呼び出し時に期限切れエントリが掃除されることを確認する。
+func TestStateStoreAddSweepsExpired(t *testing.T) {
+	s := newStateStore()
+
+	// 期限切れエントリを直接挿入する。
+	s.m["expired-key"] = time.Now().Add(-time.Second)
+
+	// 新しい state を add する（この時点で expired-key が掃除されるべき）。
+	s.add("fresh-key")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.m["expired-key"]; exists {
+		t.Errorf("expired entry should have been swept during add(), but still present")
+	}
+	if _, exists := s.m["fresh-key"]; !exists {
+		t.Errorf("fresh-key should be present after add()")
+	}
+	if len(s.m) != 1 {
+		t.Errorf("len(s.m) = %d, want 1 (only fresh-key)", len(s.m))
+	}
+}
+
 // TestStartCallbackStateSharing は /start で発行した state が /callback で消費できることを確認する。
 // 同一 Plugin インスタンスを使うことでポインタ共有契約を回帰テストとして固定する。
 func TestStartCallbackStateSharing(t *testing.T) {
