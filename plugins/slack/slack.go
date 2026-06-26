@@ -22,6 +22,11 @@ const (
 )
 
 // Plugin は Slack OAuth + API クライアントを提供する同梱プラグイン。
+//
+// states と tokens はポインタで保持する（意図的）。
+// Plugin は値渡しされるため、フィールドがポインタでなければ値コピーごとに別インスタンスになる。
+// /start が stateStore に CSRF state を書き込んでも /callback の Plugin コピーから見えなくなり、
+// CSRF 検証が常に失敗する。値フィールドに変更すると静かにセキュリティが壊れるので変えないこと。
 type Plugin struct {
 	store  *secrets.Store
 	reader *settings.Reader
