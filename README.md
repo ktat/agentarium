@@ -36,7 +36,7 @@ func main() {
 go run ./cmd/agentarium
 ```
 
-`cmd/agentarium` は hello + sessions + chat + manifest プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
+`cmd/agentarium` は hello + sessions + chat + manifest + slack プラグインと xterm ターミナルを結線した参照デモです。宣言的 manifest（IF B）の例は [`examples/manifest-tab`](examples/manifest-tab) を参照。
 
 ### 環境変数
 
@@ -160,6 +160,9 @@ val, ok := reader.Get("NOTION_APP_TOKEN") // ref なら Kernel Secrets から解
 | `secret.<KEY>` | Kernel Secret の値（暗号化 or 平文） |
 | `<pluginID>.<field>` | プラグイン設定の直接入力値 |
 | `<pluginID>.<field>.__ref` | プラグイン設定フィールドの参照先カーネルシークレットキー |
+| `slack.SLACK_CLIENT_ID` | Slack OAuth アプリの Client ID（Settings タブ「Slack」で設定、暗号化保存） |
+| `slack.SLACK_CLIENT_SECRET` | Slack OAuth アプリの Client Secret（Settings タブ「Slack」で設定、暗号化保存） |
+| `slack.tokens` | Slack OAuth で取得したアクセストークン群（暗号化保存） |
 
 プラグイン ID として `secret` / `kernel` は予約済みであり使用できない。
 
@@ -240,6 +243,7 @@ data: {"sessions":[{"id":"t1","label":"...","state":"running"}],"counts":{"idle"
 | `plugins/sessions` | `~/.claude/projects/<workdir>` の claude セッション一覧 + Resume |
 | `plugins/chat` | 自由入力テキストを既定エージェントの初期入力として起動 + chat 履歴の一覧/再開/archive。ルート `/plugins/chat/{start,list,update,archive}`、保存先 `<os.UserConfigDir>/agentarium/chat.json` |
 | `plugins/hello` | 最小リファレンスプラグイン（Settings dogfood 付き） |
+| `plugins/slack` | Slack OAuth 2.0 認可フロー + アクセストークン管理。ルート `/plugins/slack/{start,callback,tokens}`、トークン保存先: secrets ストア `slack.tokens`（暗号化）。Settings タブに `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`（暗号化保存）|
 
 ## Agent ターミナル
 

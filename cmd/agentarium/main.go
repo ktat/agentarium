@@ -25,6 +25,7 @@ import (
 	"github.com/ktat/agentarium/plugins/chat"
 	"github.com/ktat/agentarium/plugins/hello"
 	"github.com/ktat/agentarium/plugins/sessions"
+	"github.com/ktat/agentarium/plugins/slack"
 )
 
 //go:embed sessions-manifest.json
@@ -229,6 +230,7 @@ func runServer() error {
 		// session_id を補完する（ブラウザのポーリング取りこぼし対策）。
 		chat.New(chatStore).WithSessionLookup(svc.SessionID),
 		manifestPlugin,
+		slack.New(sec),
 	); err != nil {
 		return err
 	}
