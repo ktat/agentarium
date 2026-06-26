@@ -65,6 +65,7 @@ func (p *settingsPlugin) Routes() []plugin.Route {
 	return []plugin.Route{
 		{Method: "GET", Path: "/schema", Handler: p.handleSchema},
 		{Method: "POST", Path: "/save", Handler: p.handleSave},
+		{Method: "POST", Path: "/reveal", Handler: p.handleReveal},
 	}
 }
 
@@ -166,6 +167,27 @@ type kernelSecretInput struct {
 
 // handleSave は 1 プラグインの設定値を保存する。CSRF は server.New の csrfGuard が
 // POST に適用するためここでは検証しない。schema に無い key は無視。
+// handleReveal は body {"key":"<KEY>"} のカーネルシークレット 1 件の復号値を返す。
+// POST 経由なので CSRF guard の Origin チェック対象になり、外部オリジン/他プロセス
+// からの読み出しを防ぐ。値漏洩を抑えるため対象は kernel secret のみ。
+func (p *settingsPlugin) handleReveal(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, saveMaxBytes)
+	var body struct {
+		Key string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Key == "" {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	v, ok := p.store.Get(KernelSecretPrefix + body.Key)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"value": v})
+}
+
 // Secret が空文字なら既存を保持（上書きしない）。
 func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, saveMaxBytes)

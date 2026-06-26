@@ -461,3 +461,34 @@ func TestSchema_KernelSecretsAndRef(t *testing.T) {
 		t.Fatal("Kernel Secrets group (id=secret) missing")
 	}
 }
+
+func TestReveal_DecryptsKernelSecret(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	_ = store.SetSecret(settings.KernelSecretPrefix+"SECRET_KEY", "secretval")
+
+	// POST にすることで CSRF guard の Origin チェック対象になる。
+	h := findRoute(t, sp, "POST", "/reveal")
+
+	// {"key":"<KEY>"} でその 1 件の復号値だけを返す
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest("POST", "/reveal", strings.NewReader(`{"key":"SECRET_KEY"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reveal status = %d, want 200", rec.Code)
+	}
+	var resp struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Value != "secretval" {
+		t.Fatalf("reveal value = %q, want secretval", resp.Value)
+	}
+
+	// 存在しないキーは 404
+	rec = httptest.NewRecorder()
+	h(rec, httptest.NewRequest("POST", "/reveal", strings.NewReader(`{"key":"NOPE"}`)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("reveal missing key status = %d, want 404", rec.Code)
+	}
+}
