@@ -332,12 +332,51 @@ function renderKernelSecrets(root, pl) {
     delLabel.appendChild(delInput);
     delLabel.appendChild(document.createTextNode(' 削除'));
 
+    // 暗号化済み既存項目は値が伏せられている。表示ボタンで都度復号して見る。
+    // revealedValue は「表示で入れた復号値」。未編集ならこの値と一致し、Save 時に再送しない。
+    let revealedValue = null;
+    let revealBtn = null;
+    if (existing && enc) {
+      revealBtn = document.createElement('button');
+      revealBtn.type = 'button';
+      revealBtn.className = 'run-btn';
+      revealBtn.style.marginLeft = '8px';
+      revealBtn.textContent = '👁 表示';
+      let revealed = false;
+      revealBtn.addEventListener('click', async () => {
+        if (revealed) {
+          valInput.value = '';
+          valInput.type = 'password';
+          valInput.placeholder = '（設定済み・変更時のみ入力）';
+          revealBtn.textContent = '👁 表示';
+          revealed = false;
+          revealedValue = null;
+          return;
+        }
+        try {
+          const res = await fetch('/plugins/settings/reveal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: existing.key }),
+          });
+          if (!res.ok) { alert('表示失敗: HTTP ' + res.status); return; }
+          const data = await res.json();
+          revealedValue = data.value || '';
+          valInput.value = revealedValue;
+          valInput.type = 'text';
+          revealBtn.textContent = '🙈 隠す';
+          revealed = true;
+        } catch (e) { alert('表示失敗: ' + e); }
+      });
+    }
+
     wrap.appendChild(keyInput);
     wrap.appendChild(valInput);
     wrap.appendChild(encLabel);
+    if (revealBtn) wrap.appendChild(revealBtn);
     if (existing) wrap.appendChild(delLabel);
     card.appendChild(wrap);
-    rows.push({ keyInput, valInput, encInput, delInput, existing: !!existing });
+    rows.push({ keyInput, valInput, encInput, delInput, existing: !!existing, getRevealed: () => revealedValue });
   }
 
   for (const f of (pl.fields || [])) {
@@ -363,8 +402,11 @@ function renderKernelSecrets(root, pl) {
         continue;
       }
       const entry = { key, value: r.valInput.value, encrypted: r.encInput.checked };
-      // 既存・暗号で値未入力なら送らない（空は既存保持）
-      if (r.existing && r.encInput.checked && r.valInput.value === '') continue;
+      // 既存・暗号で「値未入力」または「表示しただけで未編集（復号値のまま）」なら送らない（既存保持）。
+      // 表示後に編集していれば revealedValue と一致しないので更新として送る。
+      const revealed = r.getRevealed();
+      if (r.existing && r.encInput.checked &&
+          (r.valInput.value === '' || (revealed !== null && r.valInput.value === revealed))) continue;
       secrets.push(entry);
     }
     try {
