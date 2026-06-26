@@ -484,6 +484,10 @@ func TestReveal_DecryptsKernelSecret(t *testing.T) {
 	if resp.Value != "secretval" {
 		t.Fatalf("reveal value = %q, want secretval", resp.Value)
 	}
+	// 復号した平文をキャッシュさせない
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
 
 	// 存在しないキーは 404
 	rec = httptest.NewRecorder()

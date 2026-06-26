@@ -184,6 +184,9 @@ func (p *settingsPlugin) handleReveal(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// 復号した平文をブラウザ/中継にキャッシュさせない
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"value": v})
 }
