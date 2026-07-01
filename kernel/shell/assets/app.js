@@ -39,25 +39,61 @@ async function main() {
   leftPanel = document.getElementById('panel');
   for (const p of plugins) {
     if (p.pane === 'right') continue; // 右ペインプラグインは agent タブと衝突するため左に統一
-    const btn = document.createElement('button');
-    btn.className = 'left-tab';
-    btn.textContent = p.title;
-    btn.dataset.pluginId = p.id;
+    const btn = makeLeftTabButton(p);
     leftTabs.set(p.id, { p, btn });
-    btn.addEventListener('click', () => {
-      activateLeftTab(p.id);
-      if (location.hash !== '#tab=' + p.id) location.hash = '#tab=' + p.id;
-    });
-    leftBar.appendChild(btn);
+    if (!p.hidden) leftBar.appendChild(btn); // hidden はオンデマンド表示まで bar に出さない
   }
   await focusFromHash();
   globalThis.addEventListener('hashchange', focusFromHash);
+}
+
+// makeLeftTabButton は左タブボタンを生成する。hidden プラグインには × クローズを付ける。
+function makeLeftTabButton(p) {
+  const btn = document.createElement('button');
+  btn.className = 'left-tab';
+  btn.textContent = p.title;
+  btn.dataset.pluginId = p.id;
+  btn.addEventListener('click', () => {
+    activateLeftTab(p.id);
+    if (location.hash !== '#tab=' + p.id) location.hash = '#tab=' + p.id;
+  });
+  if (p.hidden) {
+    const x = document.createElement('span');
+    x.textContent = ' ×';
+    x.style.cursor = 'pointer';
+    x.style.marginLeft = '6px';
+    x.title = '閉じる';
+    x.addEventListener('click', (e) => {
+      e.stopPropagation(); // タブ切替と分離
+      closeLeftTab(p.id);
+    });
+    btn.appendChild(x);
+  }
+  return btn;
+}
+
+// closeLeftTab は hidden タブを bar から取り除く（leftTabs エントリは残し、再度開けるようにする）。
+function closeLeftTab(pluginId) {
+  const t = leftTabs.get(pluginId);
+  if (!t) return;
+  t.btn.remove();
+  if (currentLeftTab === pluginId) {
+    currentLeftTab = null;
+    if (location.hash === '#tab=' + pluginId) location.hash = '';
+    const first = leftBar.querySelector('.left-tab');
+    if (first) {
+      activateLeftTab(first.dataset.pluginId);
+    } else {
+      leftPanel.replaceChildren(); // 可視タブが無ければ左ペインを空に
+    }
+  }
 }
 
 // activateLeftTab は pluginId の左タブをアクティブ化し params を render に渡す。未知 id は false。
 async function activateLeftTab(pluginId, params) {
   const t = leftTabs.get(pluginId);
   if (!t) return false;
+  if (!t.btn.isConnected) leftBar.appendChild(t.btn); // hidden タブのオンデマンド表示
   leftBar.querySelectorAll('.left-tab').forEach((b) => b.classList.remove('active'));
   t.btn.classList.add('active');
   currentLeftTab = pluginId;
