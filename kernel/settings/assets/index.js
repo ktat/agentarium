@@ -57,7 +57,8 @@ async function renderOpenableTabs(root) {
     const res = await fetch('/api/plugins');
     if (res.ok) plugins = await res.json();
   } catch (_) { return; }
-  const hidden = plugins.filter((p) => p.hidden === true);
+  // 左ペインの hidden プラグインのみ対象（右ペインは openTab の対象外＝開くボタンを出さない）
+  const hidden = plugins.filter((p) => p.hidden === true && p.pane !== 'right');
   if (hidden.length === 0) return; // 対象なしならセクションを出さない
 
   const card = document.createElement('div');
@@ -76,6 +77,8 @@ async function renderOpenableTabs(root) {
     btn.addEventListener('click', () => {
       if (globalThis.agentarium && typeof globalThis.agentarium.openTab === 'function') {
         globalThis.agentarium.openTab(p.id);
+      } else {
+        alert('タブを開けません（agentarium.openTab が利用できません）');
       }
     });
     row.appendChild(label);
