@@ -121,10 +121,11 @@ func indexHandler(shellFS fs.FS, title string) http.HandlerFunc {
 }
 
 type pluginDTO struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Pane  string `json:"pane"`
-	Order int    `json:"order"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Pane   string `json:"pane"`
+	Order  int    `json:"order"`
+	Hidden bool   `json:"hidden,omitempty"`
 }
 
 func paneString(p plugin.Pane) string {
@@ -139,7 +140,7 @@ func pluginsHandler(reg *plugin.Registry) http.HandlerFunc {
 		out := []pluginDTO{}
 		for _, p := range reg.Plugins() {
 			m := p.Meta()
-			out = append(out, pluginDTO{ID: m.ID, Title: m.Title, Pane: paneString(m.Pane), Order: m.Order})
+			out = append(out, pluginDTO{ID: m.ID, Title: m.Title, Pane: paneString(m.Pane), Order: m.Order, Hidden: m.Hidden})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)

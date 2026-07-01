@@ -17,10 +17,11 @@ const (
 
 // Meta はプラグインの表示メタ情報。ID はルート/アセットの名前空間に使う。
 type Meta struct {
-	ID    string
-	Title string
-	Pane  Pane
-	Order int
+	ID     string
+	Title  string
+	Pane   Pane
+	Order  int
+	Hidden bool // true: 起動時にタブを出さない。Settings の「開けるタブ」から開く。開いたタブはクローズ可
 }
 
 // Plugin は全プラグインが満たす最小契約。
