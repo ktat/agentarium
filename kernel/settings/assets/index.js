@@ -25,28 +25,67 @@ async function showList(root) {
   const plugins = (data && data.plugins) || [];
   if (plugins.length === 0) {
     root.appendChild(p('設定を持つプラグインはありません'));
-    await renderPetBlock(root);
-    return;
+  } else {
+    const table = document.createElement('table');
+    table.className = 'task-table';
+    for (const pl of plugins) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.textContent = pl.title || pl.id;
+      tr.appendChild(td);
+      const btnCell = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '⚙';
+      btn.title = '設定';
+      btn.addEventListener('click', () => showForm(root, pl, secretKeys));
+      btnCell.appendChild(btn);
+      tr.appendChild(btnCell);
+      table.appendChild(tr);
+    }
+    root.appendChild(table);
   }
-  const table = document.createElement('table');
-  table.className = 'task-table';
-  for (const pl of plugins) {
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.textContent = pl.title || pl.id;
-    tr.appendChild(td);
-    const btnCell = document.createElement('td');
+  await renderPetBlock(root);
+  await renderOpenableTabs(root); // 既存セクション描画の後に「開けるタブ」を追加
+}
+
+// renderOpenableTabs は hidden プラグインを列挙し「開く」ボタンを出す。
+// クリックで左ペインの該当タブをオンデマンドで開く（agentarium.openTab）。
+async function renderOpenableTabs(root) {
+  let plugins = [];
+  try {
+    const res = await fetch('/api/plugins');
+    if (res.ok) plugins = await res.json();
+  } catch (_) { return; }
+  // 左ペインの hidden プラグインのみ対象（右ペインは openTab の対象外＝開くボタンを出さない）
+  const hidden = plugins.filter((p) => p.hidden === true && p.pane !== 'right');
+  if (hidden.length === 0) return; // 対象なしならセクションを出さない
+
+  const card = document.createElement('div');
+  card.className = 'card';
+  const h = document.createElement('h3');
+  h.textContent = '開けるタブ';
+  card.appendChild(h);
+  for (const p of hidden) {
+    const row = document.createElement('div');
+    row.style.margin = '6px 0';
+    const label = document.createElement('span');
+    label.textContent = p.title + '  ';
     const btn = document.createElement('button');
     btn.className = 'run-btn';
-    btn.textContent = '⚙';
-    btn.title = '設定';
-    btn.addEventListener('click', () => showForm(root, pl, secretKeys));
-    btnCell.appendChild(btn);
-    tr.appendChild(btnCell);
-    table.appendChild(tr);
+    btn.textContent = '開く';
+    btn.addEventListener('click', () => {
+      if (globalThis.agentarium && typeof globalThis.agentarium.openTab === 'function') {
+        globalThis.agentarium.openTab(p.id);
+      } else {
+        alert('タブを開けません（agentarium.openTab が利用できません）');
+      }
+    });
+    row.appendChild(label);
+    row.appendChild(btn);
+    card.appendChild(row);
   }
-  root.appendChild(table);
-  await renderPetBlock(root);
+  root.appendChild(card);
 }
 
 // renderPetBlock は Pet 設定ブロックを描画する。/pet/config が無い（pet 未結線）なら何も出さない。

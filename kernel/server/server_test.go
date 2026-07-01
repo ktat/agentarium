@@ -17,12 +17,13 @@ import (
 
 // fakePlugin は Route/Frontend 両対応のテスト用プラグイン。
 type fakePlugin struct {
-	id   string
-	pane plugin.Pane
+	id     string
+	pane   plugin.Pane
+	hidden bool
 }
 
 func (f fakePlugin) Meta() plugin.Meta {
-	return plugin.Meta{ID: f.id, Title: "T-" + f.id, Pane: f.pane, Order: 0}
+	return plugin.Meta{ID: f.id, Title: "T-" + f.id, Pane: f.pane, Order: 0, Hidden: f.hidden}
 }
 func (f fakePlugin) Routes() []plugin.Route {
 	return []plugin.Route{
@@ -347,5 +348,33 @@ func TestEventsPublishSubscribe(t *testing.T) {
 	srv.ServeHTTP(rec2, req.WithContext(ctx))
 	if ct := rec2.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("content-type=%q", ct)
+	}
+}
+
+func TestAPIPlugins_HiddenFlag(t *testing.T) {
+	reg := plugin.NewRegistry()
+	_ = reg.Register(fakePlugin{id: "alpha", pane: plugin.PaneLeft})
+	_ = reg.Register(fakePlugin{id: "gamma", pane: plugin.PaneLeft, hidden: true})
+	srv := New(reg, newTestShellFS())
+
+	req := httptest.NewRequest("GET", "/api/plugins", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	byID := map[string]map[string]any{}
+	for _, g := range got {
+		byID[g["id"].(string)] = g
+	}
+	if _, present := byID["alpha"]["hidden"]; present {
+		t.Errorf("alpha should omit hidden (omitempty), got %+v", byID["alpha"])
+	}
+	if byID["gamma"]["hidden"] != true {
+		t.Errorf("gamma hidden = %v, want true", byID["gamma"]["hidden"])
 	}
 }

@@ -45,7 +45,7 @@ func New(store *secrets.Store) Plugin {
 }
 
 func (p Plugin) Meta() plugin.Meta {
-	return plugin.Meta{ID: pluginID, Title: "Slack", Pane: plugin.PaneLeft, Order: 5}
+	return plugin.Meta{ID: pluginID, Title: "Slack", Pane: plugin.PaneLeft, Order: 5, Hidden: true}
 }
 
 func (p Plugin) Assets() fs.FS {
