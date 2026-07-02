@@ -114,3 +114,32 @@ func TestRegister_RejectsReservedIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestSetOrder_OverridesSortPosition(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(fakePlugin{id: "chat", order: 0})
+	_ = r.Register(fakePlugin{id: "topics", order: 20})
+	r.SetOrder("chat", 25) // chat を topics の後ろへ
+	got := r.Plugins()
+	want := []string{"topics", "chat"}
+	for i, p := range got {
+		if p.Meta().ID != want[i] {
+			t.Fatalf("position %d: want %s, got %s", i, want[i], p.Meta().ID)
+		}
+	}
+}
+
+func TestEffectiveOrder(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(fakePlugin{id: "topics", order: 20})
+	r.SetOrder("chat", 25)
+	if got := r.EffectiveOrder("chat"); got != 25 { // override（未登録でも保持）
+		t.Errorf("chat: want 25, got %d", got)
+	}
+	if got := r.EffectiveOrder("topics"); got != 20 { // override 無し → Meta.Order
+		t.Errorf("topics: want 20, got %d", got)
+	}
+	if got := r.EffectiveOrder("nope"); got != 0 { // 未登録かつ override 無し
+		t.Errorf("nope: want 0, got %d", got)
+	}
+}
