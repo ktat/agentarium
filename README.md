@@ -26,7 +26,21 @@ func main() {
 }
 ```
 
-ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `Handler` / `Run` / `Shutdown`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal` / `kernel/store`）の両方が public です。
+ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `Handler` / `Run` / `Shutdown` / `SetTabOrder`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal` / `kernel/store`）の両方が public です。
+
+#### `SetTabOrder` でタブ表示順を上書き
+
+タブはプラグインの `Meta.Order` 値の昇順（同値は ID の昇順）で表示されます。消費者が `SetTabOrder(id, order)` を呼ぶと、指定プラグインの実効表示順を上書きできます。`Register` の前後どちらでも呼び出し可能で、チェーン可能です。
+
+```go
+app := agentarium.New()
+app.SetTabOrder("chat", 10)        // chat タブを最初に表示
+app.Register(plugins.Chat{})
+app.SetTabOrder("hello", 99)       // hello タブを最後に表示
+if err := app.Run(""); err != nil {
+	log.Fatal(err)
+}
+```
 
 `kernel/store` は `[]T` を JSON ファイルへ atomic に永続化する汎用ストア（`store.New[T](path)`）で、プラグインが小さな状態を保存するのに使えます（消費者 main が plugin ごとに別パスを渡す）。
 
