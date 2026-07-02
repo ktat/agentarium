@@ -211,7 +211,10 @@ export async function render(root, ctx) {
   // URL をクリック可能にするための処理。wrapper はサーバ側で ANSI を Run に
   // 分割済みのため、URL が複数 Run にまたがって着色されているとリンク化されない
   // (実用上 URL は単色 1 Run で出力されるため許容)。
-  const TWRAP_URL_RE = /https?:\/\/[^\s]+/g;
+  // 文字クラスは RFC 3986 で URI に使える ASCII 文字のみに限定する。[^\s] だと
+  // 全角括弧 (（) や日本語 (例 "…/116（ブランチ") まで URL に取り込んでしまうため、
+  // 非 ASCII 文字を自然なマッチ境界にする。
+  const TWRAP_URL_RE = /https?:\/\/[A-Za-z0-9\-._~:\/?#\[\]@!$&'()*+,;=%]+/g;
   function appendTextWithLinks(parent, text) {
     if (!text || text.indexOf('http') === -1) { parent.textContent = text; return; }
     TWRAP_URL_RE.lastIndex = 0;

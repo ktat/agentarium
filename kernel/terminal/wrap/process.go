@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -248,6 +249,23 @@ func (p *Process) cleanup() {
 	p.cmd = nil
 	p.ptmx = nil
 	p.closed = true
+	// response pipe の writer 側を閉じて responseLoop の emu.Read を io.EOF に
+	// し goroutine を抜けさせる。これをしないと responseLoop が永久ブロックし、
+	// emulator (VirtualRows×2 画面の grid) を握り続けて GC されない (閉じた
+	// セッションぶんメモリが漏れる)。nil 代入で grid を即 GC 可能にする。
+	//
+	// emu.Close() を使わないのは意図的: Close は非同期化されていない closed
+	// フラグに書き込み、responseLoop の emu.Read (closed 読み取り) と data race
+	// になる (上流 vt の既知問題。go test -race が検出する)。InputPipe() の実体
+	// *io.PipeWriter を CloseWithError で閉じれば io.Pipe の内部同期により
+	// race-free で同じ効果が得られる。CloseWithError は冪等なので二重 cleanup
+	// (Stop と readPump 双方) からの呼び出しでも安全。
+	if p.emu != nil {
+		if pw, ok := p.emu.InputPipe().(*io.PipeWriter); ok {
+			_ = pw.CloseWithError(io.EOF)
+		}
+		p.emu = nil
+	}
 	fn := p.onExit
 	p.onExit = nil
 	p.mu.Unlock()

@@ -57,6 +57,50 @@ func TestWrapWS_InitMessageOnConnect(t *testing.T) {
 	}
 }
 
+// TestWrapWS_PendingEntryStartsOnAttach は遅延復元された pending entry
+// (Process==nil) へ WS attach したとき、EnsureStarted で起動して init が
+// 届くことを確認する。回帰防止の対象: HandleWS が Get(id) を使うと pending
+// entry は nil を返し、warmup loop が起動するまで 404 になる（移植元
+// handler.go / 自身の xterm backend は EnsureStarted を使っている）。
+func TestWrapWS_PendingEntryStartsOnAttach(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir + "/terminals.json")
+	if err := store.Save([]StoreEntry{
+		{ID: "t1", Label: "L1", Agent: "cat", Cols: 80, AltRows: 30},
+	}); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+	agents := terminal.NewAgentRegistry("cat")
+	agents.Register(terminal.ConfigAgent{AgentName: "cat", Binary: "cat"})
+	b := &Backend{Registry: NewRegistryWithStore("", agents, store)}
+	t.Cleanup(func() { b.Registry.Close() })
+	if pending, total := b.Registry.RestoreFromStoreLazy(nil); pending != 1 || total != 1 {
+		t.Fatalf("want pending=1 total=1, got pending=%d total=%d", pending, total)
+	}
+
+	mux := http.NewServeMux()
+	for _, rt := range b.Routes() {
+		mux.HandleFunc(rt.Method+" /terminal"+rt.Path, rt.Handler)
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	conn, _, err := websocket.DefaultDialer.Dial(wrapWSURL(srv.URL, "id=t1"), nil)
+	if err != nil {
+		t.Fatalf("dial to pending entry should start it, got: %v", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg WSMessage
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("read init: %v", err)
+	}
+	if msg.Type != "init" {
+		t.Fatalf("want type=init, got %q", msg.Type)
+	}
+}
+
 func TestWrapWS_UnknownIDReturns404(t *testing.T) {
 	_, srv := newWSBackend(t)
 	_, resp, err := websocket.DefaultDialer.Dial(wrapWSURL(srv.URL, "id=missing"), nil)
