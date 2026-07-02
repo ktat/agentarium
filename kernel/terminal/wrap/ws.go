@@ -42,8 +42,10 @@ func (b *Backend) HandleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
-	p := b.Registry.Get(id)
-	if p == nil {
+	// 存在チェックは副作用なし（Has は pending も true）。プロセス起動（EnsureStarted）は
+	// Upgrade の CheckOrigin を通過した後に行う。順序を逆にすると cross-origin GET でも
+	// プロセスを起動でき CSRF 的副作用になるため、この順序を変えないこと。
+	if !b.Registry.Has(id) {
 		http.Error(w, "process not found", http.StatusNotFound)
 		return
 	}
@@ -54,6 +56,14 @@ func (b *Backend) HandleWS(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = conn.Close() }()
 	stop := terminal.ConfigureWSKeepAlive(conn)
 	defer stop()
+
+	// Origin 検証済み。ここで pending を起動／既存を取得する（遅延復元タブの
+	// WS attach 起動。Get だと pending entry が nil になり warmup まで開けない）。
+	p, _, ok := b.Registry.EnsureStarted(id)
+	if !ok {
+		// id は存在したが起動失敗（or 直前に消えた）。Upgrade 済みなので HTTP は返せず conn を閉じる。
+		return
+	}
 
 	// 不変条件（順序を変えるリファクタを禁ずる）:
 	//  1) Snapshot() を main goroutine から先に WriteJSON（init を最初に届ける）

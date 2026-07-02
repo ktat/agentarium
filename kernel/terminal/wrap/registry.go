@@ -263,6 +263,15 @@ func (r *Registry) reuseExistingLocked(id, label string, cols, altRows int) (*Pr
 	return e.Process, true
 }
 
+// Has は id の entry が存在するかを返す（pending も true）。
+// WS attach 経路で「Origin 検証前の存在チェック」に使う（副作用なし）。
+func (r *Registry) Has(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.processes[id]
+	return ok
+}
+
 // Get は id に対応する Process を返す（なければ nil）。
 func (r *Registry) Get(id string) *Process {
 	r.mu.Lock()
