@@ -261,3 +261,10 @@ func TestApp_PluginSettings(t *testing.T) {
 		t.Fatalf("reader get = %q,%v", v, ok)
 	}
 }
+
+func TestSetTabOrder_DelegatesToRegistry(t *testing.T) {
+	app := New().SetTabOrder("chat", 25)
+	if got := app.Registry().EffectiveOrder("chat"); got != 25 {
+		t.Errorf("EffectiveOrder(chat) = %d, want 25", got)
+	}
+}

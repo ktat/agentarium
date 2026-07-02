@@ -51,6 +51,13 @@ func (a *App) Register(plugins ...plugin.Plugin) error {
 // Registry は生レジストリを返す（脱出口）。
 func (a *App) Registry() *plugin.Registry { return a.reg }
 
+// SetTabOrder はプラグイン id のタブ表示順を上書きする（bundled プラグイン含む）。
+// Register の前後どちらでも呼べる。チェーン可能。
+func (a *App) SetTabOrder(id string, order int) *App {
+	a.reg.SetOrder(id, order)
+	return a
+}
+
 // WithTitle はシェル HTML の <title>（ブラウザタブ名）を上書きする。
 // 未設定なら既定の "Agentarium" のまま。
 func (a *App) WithTitle(title string) *App {

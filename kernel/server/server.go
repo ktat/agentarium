@@ -140,7 +140,7 @@ func pluginsHandler(reg *plugin.Registry) http.HandlerFunc {
 		out := []pluginDTO{}
 		for _, p := range reg.Plugins() {
 			m := p.Meta()
-			out = append(out, pluginDTO{ID: m.ID, Title: m.Title, Pane: paneString(m.Pane), Order: m.Order, Hidden: m.Hidden})
+			out = append(out, pluginDTO{ID: m.ID, Title: m.Title, Pane: paneString(m.Pane), Order: reg.EffectiveOrder(m.ID), Hidden: m.Hidden})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)

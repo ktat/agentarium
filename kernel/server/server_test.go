@@ -378,3 +378,29 @@ func TestAPIPlugins_HiddenFlag(t *testing.T) {
 		t.Errorf("gamma hidden = %v, want true", byID["gamma"]["hidden"])
 	}
 }
+
+func TestAPIPlugins_OrderOverride(t *testing.T) {
+	reg := plugin.NewRegistry()
+	_ = reg.Register(fakePlugin{id: "chat", pane: plugin.PaneLeft})   // Meta.Order=0
+	_ = reg.Register(fakePlugin{id: "topics", pane: plugin.PaneLeft}) // Meta.Order=0
+	reg.SetOrder("chat", 25)                                          // chat を後ろへ
+	srv := New(reg, newTestShellFS())
+
+	req := httptest.NewRequest("GET", "/api/plugins", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	// 配列順は topics(0) → chat(25)。chat の order フィールドも 25。
+	if got[0]["id"] != "topics" || got[1]["id"] != "chat" {
+		t.Fatalf("order wrong: got %v, %v", got[0]["id"], got[1]["id"])
+	}
+	if got[1]["order"].(float64) != 25 {
+		t.Errorf("chat order: want 25, got %v", got[1]["order"])
+	}
+}

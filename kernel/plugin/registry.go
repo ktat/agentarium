@@ -29,13 +29,14 @@ func invalidPathChar(r rune) bool {
 // Registry は登録済みプラグインを保持する。スレッドセーフではない
 // （起動時に main から逐次 Register する前提。実行中の動的追加はしない）。
 type Registry struct {
-	plugins []Plugin
-	ids     map[string]bool
+	plugins        []Plugin
+	ids            map[string]bool
+	orderOverrides map[string]int // id → 上書き Order（消費者が SetOrder で設定）
 }
 
 // NewRegistry は空のレジストリを返す。
 func NewRegistry() *Registry {
-	return &Registry{ids: map[string]bool{}}
+	return &Registry{ids: map[string]bool{}, orderOverrides: map[string]int{}}
 }
 
 // Register はプラグインを登録する。ID が空・不正・重複ならエラー。
@@ -69,16 +70,45 @@ func (r *Registry) Register(p Plugin) error {
 	return nil
 }
 
-// Plugins は (Order, ID) 昇順でソートしたコピーを返す。
+// SetOrder は id のタブ Order を上書きする。Register の前後どちらでも呼べる。
+// 未登録 id への設定は保持されるが sort には影響しない。
+func (r *Registry) SetOrder(id string, order int) {
+	r.orderOverrides[id] = order
+}
+
+// EffectiveOrder は id の実効 Order を返す。
+// override があればそれ、無ければ登録プラグインの Meta.Order、未登録かつ override 無しは 0。
+func (r *Registry) EffectiveOrder(id string) int {
+	if o, ok := r.orderOverrides[id]; ok {
+		return o
+	}
+	for _, p := range r.plugins {
+		if p.Meta().ID == id {
+			return p.Meta().Order
+		}
+	}
+	return 0
+}
+
+// Plugins は実効 Order（override 優先）で (Order, ID) 昇順でソートしたコピーを返す。
 func (r *Registry) Plugins() []Plugin {
 	out := make([]Plugin, len(r.plugins))
 	copy(out, r.plugins)
 	sort.SliceStable(out, func(i, j int) bool {
 		mi, mj := out[i].Meta(), out[j].Meta()
-		if mi.Order != mj.Order {
-			return mi.Order < mj.Order
+		oi, oj := r.effectiveOrder(mi), r.effectiveOrder(mj)
+		if oi != oj {
+			return oi < oj
 		}
 		return mi.ID < mj.ID
 	})
 	return out
+}
+
+// effectiveOrder は Meta から実効 Order を返す（override 優先）。
+func (r *Registry) effectiveOrder(m Meta) int {
+	if o, ok := r.orderOverrides[m.ID]; ok {
+		return o
+	}
+	return m.Order
 }
