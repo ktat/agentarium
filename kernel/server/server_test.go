@@ -383,7 +383,7 @@ func TestAPIPlugins_OrderOverride(t *testing.T) {
 	reg := plugin.NewRegistry()
 	_ = reg.Register(fakePlugin{id: "chat", pane: plugin.PaneLeft})   // Meta.Order=0
 	_ = reg.Register(fakePlugin{id: "topics", pane: plugin.PaneLeft}) // Meta.Order=0
-	reg.SetOrder("chat", 25) // chat を後ろへ
+	reg.SetOrder("chat", 25)                                          // chat を後ろへ
 	srv := New(reg, newTestShellFS())
 
 	req := httptest.NewRequest("GET", "/api/plugins", nil)
