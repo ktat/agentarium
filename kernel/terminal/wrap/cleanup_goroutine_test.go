@@ -2,6 +2,7 @@ package wrap
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,6 +19,14 @@ func waitForGoroutines(timeout time.Duration, cond func() bool) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return cond()
+}
+
+// goroutineStacksContain は全 goroutine の stack dump に substr が含まれるかを返す。
+// 特定の loop (responseLoop 等) が起動済みかの判定に使う。
+func goroutineStacksContain(substr string) bool {
+	buf := make([]byte, 1<<20)
+	n := runtime.Stack(buf, true)
+	return strings.Contains(string(buf[:n]), substr)
 }
 
 // TestProcess_StopReleasesGoroutines は Stop 後に Process が起動した goroutine
@@ -39,11 +48,16 @@ func TestProcess_StopReleasesGoroutines(t *testing.T) {
 	if err := p.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	// 以降の Fatalf で sleep 子プロセスと PTY goroutine が残らないよう即 defer する
+	// (Stop は冪等なので末尾の明示 Stop と重なっても安全)。
+	defer func() { _ = p.Stop() }()
 
-	// 固定 sleep ではなく、Process の goroutine が実際に立ち上がって goroutine 数が
-	// base を超えるまでポーリングで待つ。
-	if !waitForGoroutines(2*time.Second, func() bool { return runtime.NumGoroutine() > base }) {
-		t.Fatalf("Process goroutines did not start: base=%d now=%d", base, runtime.NumGoroutine())
+	// 固定 sleep ではなく、回帰対象の responseLoop が実際に goroutine dump に
+	// 現れるまでポーリングで待つ。総数 (NumGoroutine > base) だと無関係な
+	// goroutine の増加でも通過し、responseLoop が emu.Read でブロックする前に
+	// Stop してしまい回帰カバレッジが弱まる。
+	if !waitForGoroutines(2*time.Second, func() bool { return goroutineStacksContain("wrap.(*Process).responseLoop") }) {
+		t.Fatalf("responseLoop did not start: base=%d now=%d", base, runtime.NumGoroutine())
 	}
 
 	if err := p.Stop(); err != nil {
