@@ -20,12 +20,13 @@ import (
 
 // fakeBackend はテスト用の最小 Backend 実装。
 type fakeBackend struct {
-	name           string
-	starts         int
-	lastID         string
-	routes         []plugin.Route
-	restoreCalled  bool
-	restoreApplied func(SessionRecord) bool
+	name                     string
+	starts                   int
+	lastID                   string
+	routes                   []plugin.Route
+	restoreCalled            bool
+	restoreApplied           func(SessionRecord) bool
+	addSessionListenerCalled bool
 }
 
 func (b *fakeBackend) Name() string     { return b.name }
@@ -40,6 +41,7 @@ func (b *fakeBackend) Inject(id, text string, enter bool) error { return nil }
 func (b *fakeBackend) SetSessionID(id, sessionID string)        {}
 func (b *fakeBackend) List() []SessionInfo                      { return nil }
 func (b *fakeBackend) AddStateListener(l StateListener)         {}
+func (b *fakeBackend) AddSessionListener(l SessionListener)     { b.addSessionListenerCalled = true }
 func (b *fakeBackend) Restore(canResume func(SessionRecord) bool) (int, int) {
 	b.restoreCalled = true
 	b.restoreApplied = canResume
@@ -633,6 +635,7 @@ func (b *detectFakeBackend) AddStateListener(l StateListener) {
 	b.listeners = append(b.listeners, l)
 	b.mu.Unlock()
 }
+func (b *detectFakeBackend) AddSessionListener(l SessionListener)            {}
 func (b *detectFakeBackend) Restore(func(rec SessionRecord) bool) (int, int) { return 0, 0 }
 func (b *detectFakeBackend) List() []SessionInfo {
 	b.mu.Lock()
@@ -670,6 +673,19 @@ func waitForState(svc *Service, want string, d time.Duration) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return false
+}
+
+func TestService_AddSessionListenerDelegatesToActive(t *testing.T) {
+	fb := &fakeBackend{name: "fake"}
+	svc, err := NewService(ServiceConfig{Agents: NewAgentRegistry("cat"), Backends: []Backend{fb}})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	l := func(id, sid string) {}
+	svc.AddSessionListener(l)
+	if !fb.addSessionListenerCalled {
+		t.Fatalf("AddSessionListener not delegated to active backend")
+	}
 }
 
 func TestForgetHook_DelegatesBoth(t *testing.T) {

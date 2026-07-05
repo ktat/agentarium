@@ -92,6 +92,11 @@ func (s *Service) SessionID(id string) string {
 	return ""
 }
 
+// AddSessionListener は active backend のセッション ID 割当 listener を登録する。
+// consumer（プラグイン等）が「この端末に session が付いた」時点で自前ストアへ
+// 永続化するために使う。Service 内部からは登録しない（consumer 専用の公開口）。
+func (s *Service) AddSessionListener(l SessionListener) { s.active.AddSessionListener(l) }
+
 // Close は Close() error を実装する全 backend を停止する（wrap backend の
 // warmup / persist goroutine 等）。App.Shutdown から呼ばれ、library 消費者の
 // graceful shutdown で goroutine leak を防ぐ（R1）。Close を持たない backend

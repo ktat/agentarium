@@ -24,14 +24,15 @@ type StateListener = terminal.StateListener
 // を呼ぶ経路—を作ってはならない。Process の onExit は cleanup() 内で別 goroutine
 // から発火するため r.Remove が安全に r.mu を取れる。
 type Registry struct {
-	mu             sync.Mutex
-	processes      map[string]*entry
-	sessionIndex   map[string]string // SessionID → ID の逆引き
-	workDir        string
-	agents         *terminal.AgentRegistry // RestoreFromStore が Agent 名解決に使う
-	store          *Store                  // nil なら永続化なし
-	observer       ObserverHooks
-	stateListeners []StateListener
+	mu               sync.Mutex
+	processes        map[string]*entry
+	sessionIndex     map[string]string // SessionID → ID の逆引き
+	workDir          string
+	agents           *terminal.AgentRegistry // RestoreFromStore が Agent 名解決に使う
+	store            *Store                  // nil なら永続化なし
+	observer         ObserverHooks
+	stateListeners   []StateListener
+	sessionListeners []terminal.SessionListener
 	// done は Registry が持つ background goroutine（StartLazyWarmupLoop の warmup loop 等）
 	// に終了を伝える channel。Close で close される。Run/main の lifecycle に紐付けたい
 	// 長寿命 loop はここを listen する想定。
@@ -107,6 +108,16 @@ func (r *Registry) AddStateListener(l StateListener) {
 	}
 	r.mu.Lock()
 	r.stateListeners = append(r.stateListeners, l)
+	r.mu.Unlock()
+}
+
+// AddSessionListener はセッション ID 割当 callback を追加する（nil は無視）。
+func (r *Registry) AddSessionListener(l terminal.SessionListener) {
+	if l == nil {
+		return
+	}
+	r.mu.Lock()
+	r.sessionListeners = append(r.sessionListeners, l)
 	r.mu.Unlock()
 }
 
@@ -294,21 +305,32 @@ func (r *Registry) Find(id string) (*Process, string, bool) {
 }
 
 // SetSessionID は id のエントリにセッション識別子を紐付け、逆引き index を更新し永続化する。
+// 空→非空（または別値）へ変わったときだけ、ロック外で sessionListeners を発火する。
 func (r *Registry) SetSessionID(id, sessionID string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	e, ok := r.processes[id]
 	if !ok {
+		r.mu.Unlock()
 		return
 	}
-	if e.SessionID != "" {
-		delete(r.sessionIndex, e.SessionID)
+	prev := e.SessionID
+	if prev != "" {
+		delete(r.sessionIndex, prev)
 	}
 	e.SessionID = sessionID
 	if sessionID != "" {
 		r.sessionIndex[sessionID] = id
 	}
 	r.persistLocked()
+	changed := sessionID != "" && sessionID != prev
+	var listeners []terminal.SessionListener
+	if changed {
+		listeners = append([]terminal.SessionListener(nil), r.sessionListeners...)
+	}
+	r.mu.Unlock()
+	for _, l := range listeners {
+		l(id, sessionID)
+	}
 }
 
 // IDBySessionID は SessionID から terminal ID を逆引きする（なければ ""）。
