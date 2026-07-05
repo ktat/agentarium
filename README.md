@@ -267,6 +267,12 @@ data: {"sessions":[{"id":"t1","label":"...","state":"running"}],"counts":{"idle"
 
 フレームワーク用語は **「Agent ターミナル」** で、`claude` は既定エージェントの一つにすぎません。実行バイナリは **Agent プロファイル**（`{Name, Invocation(RunRequest)}`）で可変です。コマンド起動時に `agent` / `model` を指定できます。
 
+claude 用の完成版 Agent は `agents/claude` として同梱している。消費者は
+`agents.Register(claude.New())` で登録するだけで、`--model` / `--resume` / `-n`
+の引数組み立てに加え、セッション検出（`SessionDetector`）・復元判定
+（`ResumableAgent`）・状態検出（`StateAware`）の任意 IF をまとめて得る。
+自作エージェント（codex 等）を使う場合は同じ IF を実装した Agent を登録する。
+
 backend は 2 種類:
 
 - `xterm`: 生 PTY バイト + xterm.js
