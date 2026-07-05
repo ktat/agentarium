@@ -64,6 +64,9 @@ func (b *Backend) List() []terminal.SessionInfo { return b.Registry.List() }
 // AddStateListener は Registry の AddStateListener に委譲する。
 func (b *Backend) AddStateListener(l terminal.StateListener) { b.Registry.AddStateListener(l) }
 
+// AddSessionListener は Registry の AddSessionListener に委譲する。
+func (b *Backend) AddSessionListener(l terminal.SessionListener) { b.Registry.AddSessionListener(l) }
+
 // SetObserver は Registry へ委譲する（terminal.ObserverBackend）。
 func (b *Backend) SetObserver(o terminal.ObserverHooks) { b.Registry.SetObserver(o) }
 
