@@ -19,6 +19,15 @@ type Agent struct{}
 // New は claude Agent を返す。
 func New() Agent { return Agent{} }
 
+// 任意 IF（ResumableAgent 等）の実装をコンパイル時に保証する。ここに置くことで
+// consumer の go build 時にも署名ドリフトを検出できる（本番コードでの静的アサート）。
+var (
+	_ terminal.Agent           = Agent{}
+	_ terminal.ResumableAgent  = Agent{}
+	_ terminal.SessionDetector = Agent{}
+	_ terminal.StateAware      = Agent{}
+)
+
 func (Agent) Name() string { return "claude" }
 
 // Invocation は RunRequest を claude 固有引数（--model / --resume / -n）へ変換する。

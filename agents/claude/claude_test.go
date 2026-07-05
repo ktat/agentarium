@@ -10,14 +10,6 @@ import (
 	"github.com/ktat/agentarium/kernel/terminal"
 )
 
-// 任意 IF の実装をコンパイル時に保証する。
-var (
-	_ terminal.Agent           = Agent{}
-	_ terminal.ResumableAgent  = Agent{}
-	_ terminal.SessionDetector = Agent{}
-	_ terminal.StateAware      = Agent{}
-)
-
 func TestName(t *testing.T) {
 	if got := New().Name(); got != "claude" {
 		t.Fatalf("Name() = %q, want %q", got, "claude")
