@@ -8,40 +8,14 @@ import (
 	"path/filepath"
 
 	"github.com/ktat/agentarium"
+	"github.com/ktat/agentarium/agents/claude"
 	"github.com/ktat/agentarium/kernel/store"          // 同梱プラグイン用の永続ストア
 	"github.com/ktat/agentarium/kernel/terminal"       // Agent ターミナルサービス
 	"github.com/ktat/agentarium/kernel/terminal/xterm" // xterm backend
 	"github.com/ktat/agentarium/plugins/chat"          // 同梱プラグインから opt-in
 	"github.com/ktat/agentarium/plugins/hello"         // 同梱プラグインから opt-in
-	"github.com/ktat/agentarium/plugins/sessions"      // claude セッション検出に再利用
 	// 実際にはここで自作の plugins/mybacklog などを import する
 )
-
-// claudeAgent は claude バイナリ用の最小 Agent。RunRequest を claude 固有引数へ変換する。
-// 実際の消費者は使うエージェント（codex など）に合わせて Invocation を書く。
-type claudeAgent struct{}
-
-func (claudeAgent) Name() string { return "claude" }
-func (claudeAgent) Invocation(req terminal.RunRequest) (string, []string) {
-	var args []string
-	if req.Model != "" {
-		args = append(args, "--model", req.Model)
-	}
-	if req.Resume != "" {
-		args = append(args, "--resume", req.Resume)
-	}
-	if req.SessionName != "" {
-		args = append(args, "-n", req.SessionName)
-	}
-	return "claude", args
-}
-
-// ListSessionIDs は現在の claude セッション識別子を新しい順で返す（terminal.SessionDetector）。
-// これを実装すると、カーネルが新規起動セッションの UUID を検出して紐付け、
-// Chat タブの「再開」が有効になる。
-func (claudeAgent) ListSessionIDs(workDir string) []string {
-	return sessions.SessionIDs(workDir)
-}
 
 func main() {
 	wd, err := os.Getwd()
@@ -60,7 +34,7 @@ func main() {
 	// Chat タブの「送信」で右ペインに Agent ターミナルを起動するには terminal サービスの結線が要る。
 	// ここでは xterm backend 1 本の最小構成（active backend は Backends[0]、resume 判定は楽観）。
 	agents := terminal.NewAgentRegistry("claude")
-	agents.Register(claudeAgent{})
+	agents.Register(claude.New())
 	svc, err := terminal.NewService(terminal.ServiceConfig{
 		Agents:   agents,
 		Backends: []terminal.Backend{&xterm.Backend{Registry: xterm.NewRegistry(wd, agents)}},
