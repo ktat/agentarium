@@ -143,6 +143,15 @@ app.Register(myplugin.New(secrets.Scope(sec, "myplugin"))) // plugin は sc.Get(
   ローカル FS 全読（鍵ファイル同時取得）は防がない。鍵ファイルは同期・共有対象から外すこと。
 - 鍵ファイル / pepper を失うと既存 Secret は復号不能（`Get` は未設定扱い）。
 
+#### Kernel 設定（テーマ / ターミナル renderer）
+
+Settings タブの **「Kernel」グループ**では、カーネル自身の設定を行える。
+
+| 設定 | 値 | 説明 |
+|---|---|---|
+| `terminal_renderer` | `xterm`（既定）/ `wrap` | ターミナル backend。変更は再起動で反映 |
+| `theme` | `system`（既定）/ `light` / `dark` | シェル UI の配色テーマ。`system` は OS の `prefers-color-scheme` に追従、`light`/`dark` は手動固定。変更は保存後に即時反映（リロード不要）。初回描画は `<html data-theme>` のサーバ注入でちらつかない |
+
 #### Kernel Secrets（カーネル共有シークレット）
 
 Settings タブの **「Kernel Secrets」グループ**で、プラグイン横断で共有できるシークレット（API キー等）を管理できる。各エントリは登録時に **暗号化（AES-256-GCM）** または **平文** を選べる。CRUD（追加・編集・削除）は UI から行う。
