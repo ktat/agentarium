@@ -5,6 +5,7 @@ package viewer
 import (
 	"io"
 	"net/http"
+	"regexp"
 
 	"github.com/gomarkdown/markdown"
 	mdhtml "github.com/gomarkdown/markdown/html"
@@ -23,6 +24,9 @@ var policy = newPolicy()
 func newPolicy() *bluemonday.Policy {
 	p := bluemonday.UGCPolicy()
 	p.AddTargetBlankToFullyQualifiedLinks(true)
+	// Notion 由来のミュート表現（斜体+灰色）を Topics で再現するため、
+	// em 要素の class="notion-muted" だけを通す（他の class は従来どおり除去）。
+	p.AllowAttrs("class").Matching(regexp.MustCompile(`^notion-muted$`)).OnElements("em")
 	return p
 }
 

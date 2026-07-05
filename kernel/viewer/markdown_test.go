@@ -61,3 +61,23 @@ func TestHandler_RendersHTML(t *testing.T) {
 		t.Fatalf("no h1: %s", rec.Body.String())
 	}
 }
+
+func TestRenderMarkdown_AllowsNotionMutedEm(t *testing.T) {
+	out := string(RenderMarkdown([]byte(`<em class="notion-muted">hi</em>`)))
+	if !strings.Contains(out, `<em class="notion-muted">`) {
+		t.Errorf("notion-muted em should be preserved: %q", out)
+	}
+	if !strings.Contains(out, "hi") {
+		t.Errorf("text should remain: %q", out)
+	}
+}
+
+func TestRenderMarkdown_StripsOtherEmClass(t *testing.T) {
+	out := string(RenderMarkdown([]byte(`<em class="evil">hi</em>`)))
+	if strings.Contains(out, `class="evil"`) {
+		t.Errorf("non-allowed class must be stripped: %q", out)
+	}
+	if !strings.Contains(out, "hi") {
+		t.Errorf("text should remain: %q", out)
+	}
+}
