@@ -317,6 +317,7 @@ function showForm(root, pl, secretKeys) {
         body: JSON.stringify({ id: pl.id, values, refs }),
       });
       if (res.status !== 204) { alert('保存失敗: HTTP ' + res.status); return; }
+      if (pl.id === 'kernel' && 'theme' in values) applyTheme(values.theme);
       await showList(root);
     } catch (e) {
       alert('保存失敗: ' + e);
@@ -324,6 +325,17 @@ function showForm(root, pl, secretKeys) {
   });
   form.appendChild(save);
   root.appendChild(form);
+}
+
+// applyTheme は選択されたテーマを即時反映する（リロード不要）。
+// 'light'/'dark' は data-theme を立て、'system' は属性を外して OS 追従に戻す。
+function applyTheme(theme) {
+  const el = document.documentElement;
+  if (theme === 'light' || theme === 'dark') {
+    el.dataset.theme = theme;
+  } else {
+    delete el.dataset.theme;
+  }
 }
 
 function p(s) { const el = document.createElement('p'); el.className = 'muted'; el.textContent = s; return el; }
