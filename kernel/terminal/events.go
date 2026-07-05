@@ -104,8 +104,22 @@ func (s *Service) EventSubscriberCount() int {
 }
 
 // onStateChange は active backend の状態遷移ごとに呼ばれる（AddStateListener 登録）。
-// 集約状態を計算し、前回と変わったら全 SSE 購読者へ配信する。ポーリングしない。
 func (s *Service) onStateChange(id string, prev, next SessionState, source string) {
+	s.broadcastStateIfChanged()
+}
+
+// broadcastStateIfChanged は現在の全端末状態を再集約し、前回配信から変化が
+// あれば全 SSE 購読者へ配信する。ポーリングしない。状態遷移（onStateChange）
+// に加え、端末停止（handleStop）でも呼ぶことで、端末集合の減少（タブを閉じた等）
+// も購読者へ push する。
+func (s *Service) broadcastStateIfChanged() {
+	// スナップショット取得〜比較〜配信を単一クリティカルセクションで直列化する。
+	// onStateChange と handleStop の2経路が並行に走ると、古いスナップショットが
+	// ロック競合に後勝ちして lastAgg を stale な key で上書きし、古い状態を配信して
+	// しまう（停止済み端末が「実行中」のまま残る）。broadcast は非ブロッキング送信
+	// なのでロック保持中に呼んでも詰まらない。
+	s.lastAggMu.Lock()
+	defer s.lastAggMu.Unlock()
 	items := s.active.List()
 	counts, highest := aggregateStates(items)
 	ss := sessionsPayload(items)
@@ -113,13 +127,11 @@ func (s *Service) onStateChange(id string, prev, next SessionState, source strin
 	for _, m := range ss {
 		key += "|" + m["id"] + "=" + m["state"]
 	}
-	s.lastAggMu.Lock()
-	changed := key != s.lastAgg
-	s.lastAgg = key
-	s.lastAggMu.Unlock()
-	if changed {
-		s.events.broadcast(stateEventBytes(ss, counts, highest))
+	if key == s.lastAgg {
+		return
 	}
+	s.lastAgg = key
+	s.events.broadcast(stateEventBytes(ss, counts, highest))
 }
 
 // handleEvents は GET /terminal/events（SSE）。接続時に現在状態を即時送り、

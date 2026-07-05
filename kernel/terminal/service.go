@@ -293,6 +293,9 @@ func (s *Service) handleStop(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stop failed", http.StatusInternalServerError)
 		return
 	}
+	// 端末集合が減ったことを SSE 購読者へ通知する（Stop は状態リスナーを
+	// 発火しないため、ここで明示的に再配信して「実行中」表示の解除を可能にする）。
+	s.broadcastStateIfChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
 

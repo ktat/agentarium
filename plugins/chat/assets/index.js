@@ -6,6 +6,10 @@ function esc(s) {
 
 const ARCHIVE_KEY = 'chat-show-archived';
 
+// 端末生存/状態を購読する SSE 接続。render は再活性化ごとに呼ばれるため、
+// 接続をモジュール変数で1本に保ち、再 render 時は旧接続を閉じてから開き直す。
+let sseConn = null;
+
 function showArchived() {
   return localStorage.getItem(ARCHIVE_KEY) === '1';
 }
@@ -23,30 +27,63 @@ export async function render(root) {
   const startBtn = root.querySelector('#chatStart');
   const hist = root.querySelector('#chatHistory');
 
+  // liveStates: 生存端末の id → state（"running"/"idle"/"awaiting_user" 等）。
+  // /terminal/events(SSE) の state イベントで更新する。id は chat レコードの id
+  // （= terminal key）と一致するため、履歴行の「実行中」判定に使える。
+  const liveStates = new Map();
+  // 最新の chat レコード全件（archive 含む）。SSE の state 更新は record 内容を
+  // 変えないため、再取得せずこのキャッシュ + liveStates から再描画する。
+  let lastAll = [];
+
+  // refreshHistory はサーバから履歴を取得し直してから再描画する（起動/archive 等の
+  // レコード変化があったとき用）。SSE の state 更新は renderHistory を直接呼ぶ。
   async function refreshHistory() {
     try {
       const res = await fetch('/plugins/chat/list');
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      const all = data.items || [];
-      const items = all.filter(r => showArchived() || !r.archived_at);
-      const archivedCount = all.filter(r => r.archived_at).length;
-      const toggle = '<label class="chat-archive-toggle"><input type="checkbox" id="chatArchiveToggle"' +
-        (showArchived() ? ' checked' : '') + '> archive 済み (' + archivedCount + ') を表示</label>';
-      if (!items.length) {
-        hist.innerHTML = toggle + '<p class="empty-section">履歴なし</p>';
-        bindToggle();
-        return;
-      }
+      lastAll = data.items || [];
+    } catch (err) {
+      hist.innerHTML = '<p class="empty-section">取得失敗: ' + esc(String(err)) + '</p>';
+      return;
+    }
+    renderHistory();
+  }
+
+  // renderHistory はキャッシュ済みレコード（lastAll）と現在の liveStates から
+  // 履歴テーブルを描画する。ネットワーク I/O はしない。
+  function renderHistory() {
+    const all = lastAll;
+    const items = all.filter(r => showArchived() || !r.archived_at);
+    const archivedCount = all.filter(r => r.archived_at).length;
+    const toggle = '<label class="chat-archive-toggle"><input type="checkbox" id="chatArchiveToggle"' +
+      (showArchived() ? ' checked' : '') + '> archive 済み (' + archivedCount + ') を表示</label>';
+    if (!items.length) {
+      hist.innerHTML = toggle + '<p class="empty-section">履歴なし</p>';
+      bindToggle();
+      return;
+    }
+    {
       const rows = items.map(r => {
         const created = (r.started_at || '').replace('T', ' ').substring(0, 19);
         const rowCls = r.archived_at ? ' class="row-archived"' : '';
-        const resumeAttrs = r.session_id
-          ? 'data-id="' + esc(r.id) + '" data-sid="' + esc(r.session_id) + '" data-summary="' + esc(r.summary) + '"'
-          : 'disabled';
+        // 生存端末（pending=遅延復元未起動を除く）は「実行中」。クリックで
+        // その PTY タブを activate する。そうでなければ従来の「再開」。
+        const st = liveStates.get(r.id);
+        const isLive = !!st && st !== 'pending';
+        let actionBtn;
+        if (isLive) {
+          actionBtn = '<button class="chat-active-btn" data-id="' + esc(r.id) +
+            '" data-summary="' + esc(r.summary) + '">● 実行中</button>';
+        } else {
+          const resumeAttrs = r.session_id
+            ? 'data-id="' + esc(r.id) + '" data-sid="' + esc(r.session_id) + '" data-summary="' + esc(r.summary) + '"'
+            : 'disabled';
+          actionBtn = '<button class="chat-resume-btn" ' + resumeAttrs + '>↪ 再開</button>';
+        }
         return '<tr' + rowCls + '><td>' + esc(r.summary) + '</td>' +
           '<td>' + esc(created) + '</td>' +
-          '<td><button class="chat-resume-btn" ' + resumeAttrs + '>↪ 再開</button> ' +
+          '<td>' + actionBtn + ' ' +
           '<button class="chat-archive-btn" data-id="' + esc(r.id) + '">' +
           (r.archived_at ? '戻す' : 'archive') + '</button></td></tr>';
       }).join('');
@@ -55,8 +92,6 @@ export async function render(root) {
         rows + '</tbody></table>';
       bindToggle();
       bindRowButtons();
-    } catch (err) {
-      hist.innerHTML = '<p class="empty-section">取得失敗: ' + esc(String(err)) + '</p>';
     }
   }
 
@@ -66,7 +101,7 @@ export async function render(root) {
       t.dataset.bound = '1';
       t.addEventListener('change', () => {
         localStorage.setItem(ARCHIVE_KEY, t.checked ? '1' : '0');
-        refreshHistory();
+        renderHistory(); // 表示切替のみ。レコードは lastAll にあるので再取得不要
       });
     }
   }
@@ -78,6 +113,15 @@ export async function render(root) {
         const summary = btn.dataset.summary || '';
         const label = '↪ ' + (summary.length > 28 ? summary.slice(0, 28) + '…' : summary);
         globalThis.agentarium.openAgentTab({ key: btn.dataset.id, label: label, resume: btn.dataset.sid });
+      });
+    });
+    hist.querySelectorAll('button.chat-active-btn:not([data-bound])').forEach(btn => {
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', () => {
+        const summary = btn.dataset.summary || '';
+        const label = '↪ ' + (summary.length > 28 ? summary.slice(0, 28) + '…' : summary);
+        // 生存端末: openAgentTab は既存の右タブなら activate する（新規起動しない）。
+        globalThis.agentarium.openAgentTab({ key: btn.dataset.id, label: label });
       });
     });
     hist.querySelectorAll('button.chat-archive-btn:not([data-bound])').forEach(btn => {
@@ -134,10 +178,37 @@ export async function render(root) {
     setTimeout(refreshHistory, 800);
   }
 
+  // 端末の生存/状態を /terminal/events(SSE) で購読し、履歴の「実行中」表示を更新する。
+  // 起動→状態変化に加え、Kernel は stop 時にも再配信するため「実行中→再開」も push される。
+  // 接続時に現在スナップショットが即届くので初期表示も正確。SSE 不可なら session_id ベースで動く。
+  function setupLiveTracking() {
+    if (sseConn) { try { sseConn.close(); } catch (_) { /* 無視 */ } sseConn = null; }
+    try {
+      sseConn = new EventSource('/terminal/events');
+      sseConn.addEventListener('state', e => {
+        // パネルが差し替えられ root が DOM から外れていたら自己クローズする
+        // （app.js に teardown フックが無いため、次イベントで後始末する）。
+        if (!root.isConnected) {
+          try { sseConn.close(); } catch (_) { /* 無視 */ }
+          sseConn = null;
+          return;
+        }
+        let payload;
+        try { payload = JSON.parse(e.data); } catch (_) { return; }
+        liveStates.clear();
+        for (const s of (payload.sessions || [])) {
+          if (s && s.id) liveStates.set(s.id, s.state);
+        }
+        renderHistory(); // レコードは lastAll にあるので再取得せず再描画
+      });
+    } catch (_) { /* SSE 不可でも履歴は session_id ベースで動作する */ }
+  }
+
   startBtn.addEventListener('click', startChat);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); startChat(); }
   });
 
+  setupLiveTracking();
   refreshHistory();
 }
