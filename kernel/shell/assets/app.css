@@ -1,5 +1,6 @@
 /* === Design tokens === */
 :root {
+  color-scheme: light;
   --bg: #f3f4f6;
   --surface: #fff;
   --text: #1f2937;
@@ -49,6 +50,7 @@
    (1) :root[data-theme="dark"]  … 明示的に Dark を選択
    (2) @media dark かつ属性なし  … System 追従（未指定時のみ OS に従う） */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #111827;
   --surface: #1f2937;
   --text: #e5e7eb;
@@ -79,6 +81,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    color-scheme: dark;
     --bg: #111827;
     --surface: #1f2937;
     --text: #e5e7eb;
