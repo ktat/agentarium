@@ -303,6 +303,81 @@ func TestTerminalRenderer_UnsetIsEmpty(t *testing.T) {
 	}
 }
 
+func TestSchema_KernelThemeHasOptions(t *testing.T) {
+	_, _, sp := newTestEnv(t)
+	h := findRoute(t, sp, "GET", "/schema")
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("GET", "/schema", nil))
+
+	var out struct {
+		Plugins []struct {
+			ID     string `json:"id"`
+			Fields []struct {
+				Key     string   `json:"key"`
+				Value   string   `json:"value"`
+				Options []string `json:"options"`
+			} `json:"fields"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, g := range out.Plugins {
+		if g.ID != "kernel" {
+			continue
+		}
+		for _, f := range g.Fields {
+			if f.Key == "theme" {
+				if len(f.Options) != 3 || f.Options[0] != "system" || f.Options[1] != "light" || f.Options[2] != "dark" {
+					t.Fatalf("theme options = %v, want [system light dark]", f.Options)
+				}
+				if f.Value != "system" {
+					t.Fatalf("theme default value = %q, want system", f.Value)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("kernel.theme field with options not found")
+}
+
+func TestSave_KernelThemeValidAndReader(t *testing.T) {
+	_, store, sp := newTestEnv(t)
+	h := findRoute(t, sp, "POST", "/save")
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("POST", "/save", strings.NewReader(`{"id":"kernel","values":{"theme":"dark"}}`)))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("save theme: want 204, got %d", w.Code)
+	}
+	if v, ok := store.Get(settings.KeyTheme); !ok || v != "dark" {
+		t.Fatalf("stored theme = %q ok=%v, want dark", v, ok)
+	}
+	if got := settings.Theme(store); got != "dark" {
+		t.Fatalf("Theme() = %q, want dark", got)
+	}
+}
+
+func TestSave_KernelThemeInvalid(t *testing.T) {
+	_, _, sp := newTestEnv(t)
+	h := findRoute(t, sp, "POST", "/save")
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("POST", "/save", strings.NewReader(`{"id":"kernel","values":{"theme":"bogus"}}`)))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid theme: want 400, got %d", w.Code)
+	}
+}
+
+func TestTheme_SystemAndUnsetAreEmpty(t *testing.T) {
+	_, store, _ := newTestEnv(t)
+	if got := settings.Theme(store); got != "" {
+		t.Fatalf("unset Theme() = %q, want empty", got)
+	}
+	_ = store.Set(settings.KeyTheme, "system")
+	if got := settings.Theme(store); got != "" {
+		t.Fatalf("system Theme() = %q, want empty", got)
+	}
+}
+
 func TestAssets_HasIndexJS(t *testing.T) {
 	_, _, sp := newTestEnv(t)
 

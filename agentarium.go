@@ -114,6 +114,9 @@ func (a *App) Handler() (http.Handler, error) {
 	if a.title != "" {
 		opts = append(opts, server.WithTitle(a.title))
 	}
+	if a.secrets != nil {
+		opts = append(opts, server.WithThemeProvider(func() string { return settings.Theme(a.secrets) }))
+	}
 	return server.New(a.reg, shell.FS(), opts...), nil
 }
 
