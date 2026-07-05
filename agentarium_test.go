@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,6 +189,27 @@ func TestApp_WithTerminalReturnsSelfForChaining(t *testing.T) {
 	})
 	if app.WithTerminal(svc) != app {
 		t.Fatal("WithTerminal should return the same *App for chaining")
+	}
+}
+
+func TestApp_WithFaviconInjectsLink(t *testing.T) {
+	app := New().WithFavicon("/plugins/board/assets/icon.png")
+	h, err := app.Handler()
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `<link rel="icon" href="/plugins/board/assets/icon.png">`) {
+		t.Fatalf("favicon link not injected: %q", rec.Body.String())
+	}
+}
+
+func TestApp_WithFaviconReturnsSelfForChaining(t *testing.T) {
+	app := New()
+	if app.WithFavicon("/icon.png") != app {
+		t.Fatal("WithFavicon should return the same *App for chaining")
 	}
 }
 
