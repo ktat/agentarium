@@ -532,6 +532,19 @@ h2:first-child { margin-top: 0; }
 }
 .chat-resume-btn:hover:not(:disabled) { background: var(--btn-resume-bg-hover); border-color: var(--btn-resume-border-hover); }
 .chat-resume-btn:disabled { opacity: .5; cursor: default; }
+/* 実行中（生存端末）: 再開ピルと同形状で、running 色で状態を示す */
+.chat-active-btn {
+  font-size: 11px;
+  padding: 2px 10px;
+  line-height: 1.6;
+  border-radius: 999px;
+  border: 1px solid var(--state-running);
+  background: transparent;
+  color: var(--state-running);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chat-active-btn:hover { background: var(--bg); }
 .chat-archive-btn {
   border-color: var(--border-strong);
   background: var(--surface);

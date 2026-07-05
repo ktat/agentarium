@@ -104,8 +104,15 @@ func (s *Service) EventSubscriberCount() int {
 }
 
 // onStateChange は active backend の状態遷移ごとに呼ばれる（AddStateListener 登録）。
-// 集約状態を計算し、前回と変わったら全 SSE 購読者へ配信する。ポーリングしない。
 func (s *Service) onStateChange(id string, prev, next SessionState, source string) {
+	s.broadcastStateIfChanged()
+}
+
+// broadcastStateIfChanged は現在の全端末状態を再集約し、前回配信から変化が
+// あれば全 SSE 購読者へ配信する。ポーリングしない。状態遷移（onStateChange）
+// に加え、端末停止（handleStop）でも呼ぶことで、端末集合の減少（タブを閉じた等）
+// も購読者へ push する。
+func (s *Service) broadcastStateIfChanged() {
 	items := s.active.List()
 	counts, highest := aggregateStates(items)
 	ss := sessionsPayload(items)
