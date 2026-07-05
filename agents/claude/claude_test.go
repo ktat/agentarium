@@ -3,11 +3,13 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ktat/agentarium/kernel/terminal"
+	"github.com/ktat/agentarium/plugins/sessions"
 )
 
 func TestName(t *testing.T) {
@@ -55,6 +57,15 @@ func TestResumeArtifact(t *testing.T) {
 	}
 	if New().ResumeArtifact("/tmp/work", "") != "" {
 		t.Fatal("empty sessionID should return empty path")
+	}
+}
+
+func TestListSessionIDsDelegates(t *testing.T) {
+	// ListSessionIDs は sessions.SessionIDs へ委譲するだけ。同一 workDir で両者の
+	// 結果が一致することで委譲を検証する（存在しない dir でも nil 同士で一致し決定論的）。
+	const workDir = "/tmp/agentarium-nonexistent-workdir"
+	if got, want := New().ListSessionIDs(workDir), sessions.SessionIDs(workDir); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListSessionIDs(%q) = %v, want delegation to sessions.SessionIDs = %v", workDir, got, want)
 	}
 }
 
