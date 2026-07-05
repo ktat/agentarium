@@ -26,7 +26,17 @@ func main() {
 }
 ```
 
-ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `Handler` / `Run` / `Shutdown` / `SetTabOrder`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal` / `kernel/store`）の両方が public です。
+ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `WithTitle` / `WithFavicon` / `Handler` / `Run` / `Shutdown` / `SetTabOrder`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal` / `kernel/store`）の両方が public です。
+
+#### `WithTitle` / `WithFavicon` でシェルの見た目を上書き
+
+`WithTitle(name)` はブラウザタブの `<title>` と左上ヘッダ名を消費者アプリ名に差し替えます。`WithFavicon(href)` は `<head>` に `<link rel="icon" href="...">` を注入します。`href` は data URI・自作プラグインの資産パス（例 `/plugins/foo/assets/icon.png`）・絶対 URL のいずれでもよく、favicon 実体の配信は消費者責任です。どちらもチェーン可能で、未設定なら既定（無アイコン / `Agentarium`）のままです。
+
+```go
+app := agentarium.New().
+	WithTitle("EDOCODE Board Assistant").
+	WithFavicon("/plugins/board/assets/icon.png")
+```
 
 #### `SetTabOrder` でタブ表示順を上書き
 

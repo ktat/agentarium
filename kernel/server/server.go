@@ -27,6 +27,7 @@ type config struct {
 	terminal      Mountable
 	pet           Mountable
 	title         string
+	favicon       string
 	themeProvider func() string
 }
 
@@ -34,6 +35,14 @@ type config struct {
 // 空のままなら既定（"Agentarium"）を使う。
 func WithTitle(title string) Option {
 	return func(c *config) { c.title = title }
+}
+
+// WithFavicon はシェル HTML の <head> に <link rel="icon" href="..."> を注入する
+// （消費者アプリのブラウザタブアイコン用）。href は data URI / プラグイン資産パス
+// （例 /plugins/foo/assets/icon.png）/ 絶対URL のいずれでもよい。favicon 実体の
+// 配信は消費者責任。空のままなら link を注入しない（既定の無アイコン挙動を維持）。
+func WithFavicon(href string) Option {
+	return func(c *config) { c.favicon = href }
 }
 
 // WithThemeProvider は index.html 描画時に <html> へ data-theme を注入する
@@ -87,7 +96,7 @@ func New(reg *plugin.Registry, shellFS fs.FS, opts ...Option) *http.ServeMux {
 	mux.Handle("POST /events/publish", csrfGuard(http.HandlerFunc(hub.HandlePublish)))
 	mux.HandleFunc("GET /events", hub.HandleSubscribe)
 	mux.Handle("GET /assets/", noDirListing(http.StripPrefix("/assets/", http.FileServer(http.FS(shellFS)))))
-	mux.HandleFunc("GET /{$}", indexHandler(shellFS, cfg.title, cfg.themeProvider))
+	mux.HandleFunc("GET /{$}", indexHandler(shellFS, cfg.title, cfg.favicon, cfg.themeProvider))
 	if cfg.terminal != nil {
 		cfg.terminal.MountOn(mux)
 	}
@@ -109,7 +118,7 @@ func noDirListing(h http.Handler) http.Handler {
 	})
 }
 
-func indexHandler(shellFS fs.FS, title string, themeProvider func() string) http.HandlerFunc {
+func indexHandler(shellFS fs.FS, title, favicon string, themeProvider func() string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		b, err := fs.ReadFile(shellFS, "index.html")
 		if err != nil {
@@ -117,6 +126,10 @@ func indexHandler(shellFS fs.FS, title string, themeProvider func() string) http
 			return
 		}
 		s := string(b)
+		if favicon != "" {
+			link := `<link rel="icon" href="` + html.EscapeString(favicon) + `">`
+			s = strings.Replace(s, "<!--favicon-->", link, 1)
+		}
 		if title != "" {
 			esc := html.EscapeString(title)
 			s = strings.NewReplacer(

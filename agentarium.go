@@ -29,6 +29,7 @@ type App struct {
 	secrets  *secrets.Store
 	pet      *pet.Supervisor
 	title    string
+	favicon  string
 	mu       sync.Mutex
 	srv      *http.Server
 }
@@ -62,6 +63,15 @@ func (a *App) SetTabOrder(id string, order int) *App {
 // 未設定なら既定の "Agentarium" のまま。
 func (a *App) WithTitle(title string) *App {
 	a.title = title
+	return a
+}
+
+// WithFavicon はシェル HTML の <head> にブラウザタブアイコン用の
+// <link rel="icon" href="..."> を注入する。href は data URI /
+// プラグイン資産パス（例 /plugins/foo/assets/icon.png）/ 絶対URL のいずれでもよい。
+// favicon 実体の配信は消費者責任。未設定なら link を注入しない。チェーン可能。
+func (a *App) WithFavicon(href string) *App {
+	a.favicon = href
 	return a
 }
 
@@ -113,6 +123,9 @@ func (a *App) Handler() (http.Handler, error) {
 	}
 	if a.title != "" {
 		opts = append(opts, server.WithTitle(a.title))
+	}
+	if a.favicon != "" {
+		opts = append(opts, server.WithFavicon(a.favicon))
 	}
 	if a.secrets != nil {
 		opts = append(opts, server.WithThemeProvider(func() string { return settings.Theme(a.secrets) }))

@@ -195,6 +195,61 @@ func TestIndex_ThemeSystem_NoAttribute(t *testing.T) {
 	}
 }
 
+func TestIndex_WithFavicon_Injects(t *testing.T) {
+	reg := plugin.NewRegistry()
+	shellFS := fstest.MapFS{
+		"index.html": {Data: []byte(`<html><head><!--favicon--></head><body></body></html>`)},
+	}
+	srv := New(reg, shellFS, WithFavicon("/plugins/board/assets/icon.png"))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if !strings.Contains(rec.Body.String(), `<link rel="icon" href="/plugins/board/assets/icon.png">`) {
+		t.Fatalf("favicon link not injected: %q", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "<!--favicon-->") {
+		t.Fatalf("placeholder should be replaced: %q", rec.Body.String())
+	}
+}
+
+func TestIndex_NoFavicon_NoLink(t *testing.T) {
+	reg := plugin.NewRegistry()
+	shellFS := fstest.MapFS{
+		"index.html": {Data: []byte(`<html><head><!--favicon--></head><body></body></html>`)},
+	}
+	srv := New(reg, shellFS) // WithFavicon 未指定
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if strings.Contains(rec.Body.String(), `rel="icon"`) {
+		t.Fatalf("favicon link should be absent when unset: %q", rec.Body.String())
+	}
+}
+
+func TestIndex_WithFavicon_EscapesHref(t *testing.T) {
+	reg := plugin.NewRegistry()
+	shellFS := fstest.MapFS{
+		"index.html": {Data: []byte(`<html><head><!--favicon--></head><body></body></html>`)},
+	}
+	srv := New(reg, shellFS, WithFavicon(`x"><script>`))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, `href="x"><script>`) {
+		t.Fatalf("href must be escaped: %q", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Fatalf("expected escaped href in body: %q", body)
+	}
+}
+
 func TestShellAssets_Served(t *testing.T) {
 	reg := plugin.NewRegistry()
 	srv := New(reg, newTestShellFS())
