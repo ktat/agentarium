@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/ktat/agentarium"
+	"github.com/ktat/agentarium/agents/claude"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/terminal"
 	"github.com/ktat/agentarium/kernel/terminal/xterm"
@@ -17,24 +18,6 @@ import (
 
 //go:embed manifest.json
 var manifestJSON []byte
-
-// claudeAgent は claude バイナリ用 Agent。RunRequest を claude 固有引数に変換する。
-type claudeAgent struct{}
-
-func (claudeAgent) Name() string { return "claude" }
-func (claudeAgent) Invocation(req terminal.RunRequest) (string, []string) {
-	var args []string
-	if req.Model != "" {
-		args = append(args, "--model", req.Model)
-	}
-	if req.Resume != "" {
-		args = append(args, "--resume", req.Resume)
-	}
-	if req.SessionName != "" {
-		args = append(args, "-n", req.SessionName)
-	}
-	return "claude", args
-}
 
 func main() {
 	wd, err := os.Getwd()
@@ -56,7 +39,7 @@ func main() {
 	}
 
 	agents := terminal.NewAgentRegistry("claude")
-	agents.Register(claudeAgent{})
+	agents.Register(claude.New())
 	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistry(wd, agents)}
 	svc, err := terminal.NewService(terminal.ServiceConfig{
 		Agents:   agents,
