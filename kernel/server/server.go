@@ -24,15 +24,23 @@ type Option func(*config)
 
 // config は New 内部の構築状態を持つ。external には公開しない。
 type config struct {
-	terminal Mountable
-	pet      Mountable
-	title    string
+	terminal      Mountable
+	pet           Mountable
+	title         string
+	themeProvider func() string
 }
 
 // WithTitle はシェル HTML の <title> と左上ヘッダ（span.title）を上書きする（消費者アプリ名の表示用）。
 // 空のままなら既定（"Agentarium"）を使う。
 func WithTitle(title string) Option {
 	return func(c *config) { c.title = title }
+}
+
+// WithThemeProvider は index.html 描画時に <html> へ data-theme を注入する
+// テーマ供給関数を設定する。fn が "light"/"dark" を返すときのみ属性を注入し、
+// それ以外（"" = system/未設定）は無置換（@media / :root に委ねる）。
+func WithThemeProvider(fn func() string) Option {
+	return func(c *config) { c.themeProvider = fn }
 }
 
 // WithTerminal は terminal.Service を server に統合するオプション。
@@ -79,7 +87,7 @@ func New(reg *plugin.Registry, shellFS fs.FS, opts ...Option) *http.ServeMux {
 	mux.Handle("POST /events/publish", csrfGuard(http.HandlerFunc(hub.HandlePublish)))
 	mux.HandleFunc("GET /events", hub.HandleSubscribe)
 	mux.Handle("GET /assets/", noDirListing(http.StripPrefix("/assets/", http.FileServer(http.FS(shellFS)))))
-	mux.HandleFunc("GET /{$}", indexHandler(shellFS, cfg.title))
+	mux.HandleFunc("GET /{$}", indexHandler(shellFS, cfg.title, cfg.themeProvider))
 	if cfg.terminal != nil {
 		cfg.terminal.MountOn(mux)
 	}
@@ -101,22 +109,28 @@ func noDirListing(h http.Handler) http.Handler {
 	})
 }
 
-func indexHandler(shellFS fs.FS, title string) http.HandlerFunc {
+func indexHandler(shellFS fs.FS, title string, themeProvider func() string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		b, err := fs.ReadFile(shellFS, "index.html")
 		if err != nil {
 			http.Error(w, "index not found", http.StatusInternalServerError)
 			return
 		}
+		s := string(b)
 		if title != "" {
 			esc := html.EscapeString(title)
-			b = []byte(strings.NewReplacer(
+			s = strings.NewReplacer(
 				"<title>Agentarium</title>", "<title>"+esc+"</title>",
 				`<span class="title">Agentarium</span>`, `<span class="title">`+esc+"</span>",
-			).Replace(string(b)))
+			).Replace(s)
+		}
+		if themeProvider != nil {
+			if th := themeProvider(); th == "light" || th == "dark" {
+				s = strings.Replace(s, `<html lang="ja">`, `<html lang="ja" data-theme="`+th+`">`, 1)
+			}
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(b)
+		_, _ = w.Write([]byte(s))
 	}
 }
 

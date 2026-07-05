@@ -163,6 +163,38 @@ func TestIndex_NoTitle_KeepsDefault(t *testing.T) {
 	}
 }
 
+func TestIndex_ThemeInjected(t *testing.T) {
+	reg := plugin.NewRegistry()
+	shellFS := fstest.MapFS{
+		"index.html": {Data: []byte(`<!doctype html><html lang="ja"><head></head><body></body></html>`)},
+	}
+	srv := New(reg, shellFS, WithThemeProvider(func() string { return "dark" }))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if !strings.Contains(rec.Body.String(), `<html lang="ja" data-theme="dark">`) {
+		t.Fatalf("data-theme not injected: %q", rec.Body.String())
+	}
+}
+
+func TestIndex_ThemeSystem_NoAttribute(t *testing.T) {
+	reg := plugin.NewRegistry()
+	shellFS := fstest.MapFS{
+		"index.html": {Data: []byte(`<!doctype html><html lang="ja"><head></head><body></body></html>`)},
+	}
+	srv := New(reg, shellFS, WithThemeProvider(func() string { return "" }))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if strings.Contains(rec.Body.String(), "data-theme") {
+		t.Fatalf("data-theme should be absent for system: %q", rec.Body.String())
+	}
+}
+
 func TestShellAssets_Served(t *testing.T) {
 	reg := plugin.NewRegistry()
 	srv := New(reg, newTestShellFS())
