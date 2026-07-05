@@ -81,17 +81,24 @@ export async function render(root, ctx) {
 
   function sendResize() {
     if (!entry.ws || entry.ws.readyState !== 1) return;
+    // 非表示 (タブ非アクティブ = 祖先が display:none) のときは resize を送らない。
+    // display:none 下では viewportEl も root も clientWidth=0 になり、そのまま計算
+    // すると cols=Math.max(20,0)=20 の極狭 resize を PTY に送ってしまう。すると TUI が
+    // 20 桁に reflow し、タブ復帰時に一瞬その狭い表示が見えてから ResizeObserver 再発火
+    // で通常幅へ戻る (幅が一瞬狭くなる bug)。非表示中は送らず、表示に戻ったときの
+    // ResizeObserver 発火で実寸 resize させる。offsetParent は display:none 下で null。
+    if (entry.viewportEl.offsetParent === null) return;
     const m = measureCell();
     entry.fontMetric = m;
-    // 非アクティブ tab は display:none で viewport.clientWidth = 0 になり、
-    // そのまま計算すると cols=20 (Math.max の下限) になって PTY が極狭で起動する。
-    // 親 root の幅を fallback として使う。
+    // 表示中でもレイアウト途中で一時的に極小になり得るケースは root を fallback。
     let vpW = entry.viewportEl.clientWidth;
     let vpH = entry.viewportEl.clientHeight;
     if (vpW < 50 || vpH < 50) {
       vpW = root.clientWidth || vpW;
       vpH = root.clientHeight || vpH;
     }
+    // 実寸がまだ取れない (レイアウト前) なら無効な極狭 resize を送らずスキップ。
+    if (vpW < 20 || vpH < 20) return;
     const newCols = Math.max(20, Math.floor(vpW / m.w));
     const newAltRows = Math.max(10, Math.floor(vpH / m.h));
     entry.altRows = newAltRows;

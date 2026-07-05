@@ -18,12 +18,20 @@
     <div class="layout-resizer" id="layoutResizer" title="ドラッグで左右幅を調整"><button type="button" class="collapse-btn" id="leftCollapseBtn" title="左ペインをたたむ" aria-label="左ペインをたたむ"></button></div>
     <div class="right-pane no-viewer">
       <div class="right-top" id="rightTop">
-        <div class="viewer-tab-bar" id="viewer-tab-bar"></div>
+        <div class="tab-bar-wrap">
+          <button class="tab-scroll-btn left" type="button" aria-label="タブを左へスクロール">‹</button>
+          <div class="viewer-tab-bar" id="viewer-tab-bar"></div>
+          <button class="tab-scroll-btn right" type="button" aria-label="タブを右へスクロール">›</button>
+        </div>
         <div class="panel viewer-panel" id="viewer-panel"></div>
       </div>
       <div class="right-resizer" id="rightResizer" title="ドラッグで上下高さを調整"><button type="button" class="collapse-btn" id="bottomCollapseBtn" title="ターミナルをたたむ" aria-label="ターミナルをたたむ"></button></div>
       <div class="right-bottom" id="rightBottom">
-        <div class="term-tab-bar" id="right-tab-bar"></div>
+        <div class="tab-bar-wrap term">
+          <button class="tab-scroll-btn left" type="button" aria-label="タブを左へスクロール">‹</button>
+          <div class="term-tab-bar" id="right-tab-bar"></div>
+          <button class="tab-scroll-btn right" type="button" aria-label="タブを右へスクロール">›</button>
+        </div>
         <div class="panel" id="right-panel"><p class="empty">Agent タブはまだ開かれていません</p></div>
       </div>
     </div>
