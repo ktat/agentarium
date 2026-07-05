@@ -24,9 +24,12 @@ const (
 	kernelGroupID = "kernel"
 	secretGroupID = "secret"
 	rendererField = "terminal_renderer"
+	themeField    = "theme"
 	// KeyTerminalRenderer は secrets.Store 上のカーネル renderer 設定キー。
 	// cmd 側がこのキーを読んで active backend を選ぶ。
 	KeyTerminalRenderer = kernelGroupID + "." + rendererField
+	// KeyTheme は secrets.Store 上のカーネル theme 設定キー（system|light|dark）。
+	KeyTheme = kernelGroupID + "." + themeField
 )
 
 // rendererOptions は terminal_renderer の選択肢（表示順）。UI はこれをラジオで出す。
@@ -42,6 +45,25 @@ func TerminalRenderer(store *secrets.Store) string {
 		return ""
 	}
 	if v, ok := store.Get(KeyTerminalRenderer); ok && allowedRenderers[v] {
+		return v
+	}
+	return ""
+}
+
+// themeOptions は theme の選択肢（表示順）。UI はこれをラジオで出す。
+var themeOptions = []string{"system", "light", "dark"}
+
+// allowedThemes は theme に許す値（検証用）。
+var allowedThemes = map[string]bool{"system": true, "light": true, "dark": true}
+
+// Theme は store に保存された theme のうち HTML に注入すべき属性値を返す。
+// "light"/"dark" はそのまま、"system"・未設定・不正値は "" を返す（属性なし＝
+// @media(prefers-color-scheme) / :root に委ねる）。
+func Theme(store *secrets.Store) string {
+	if store == nil {
+		return ""
+	}
+	if v, ok := store.Get(KeyTheme); ok && (v == "light" || v == "dark") {
 		return v
 	}
 	return ""
@@ -102,7 +124,11 @@ func (p *settingsPlugin) handleSchema(w http.ResponseWriter, r *http.Request) {
 	if v, ok := p.store.Get(KeyTerminalRenderer); ok {
 		rendererDTO.Value = v
 	}
-	out = append(out, pluginDTO{ID: kernelGroupID, Title: "Kernel", Fields: []fieldDTO{rendererDTO}})
+	themeDTO := fieldDTO{Key: themeField, Label: "テーマ（System / Light / Dark）", Options: themeOptions, Value: "system"}
+	if v, ok := p.store.Get(KeyTheme); ok && allowedThemes[v] {
+		themeDTO.Value = v
+	}
+	out = append(out, pluginDTO{ID: kernelGroupID, Title: "Kernel", Fields: []fieldDTO{rendererDTO, themeDTO}})
 
 	// Kernel Secrets グループと secretKeys 候補を収集する。
 	secretKeys := make([]string, 0)
@@ -199,7 +225,7 @@ func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	// カーネル設定グループ（プラグインではない）。renderer のみ受け付ける。
+	// カーネル設定グループ（プラグインではない）。renderer と theme を受け付ける。
 	if body.ID == kernelGroupID {
 		if v, ok := body.Values[rendererField]; ok {
 			if v != "" && !allowedRenderers[v] {
@@ -207,6 +233,16 @@ func (p *settingsPlugin) handleSave(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := p.store.Set(KeyTerminalRenderer, v); err != nil {
+				http.Error(w, "save failed", http.StatusInternalServerError)
+				return
+			}
+		}
+		if v, ok := body.Values[themeField]; ok {
+			if v != "" && !allowedThemes[v] {
+				http.Error(w, "invalid theme (system|light|dark)", http.StatusBadRequest)
+				return
+			}
+			if err := p.store.Set(KeyTheme, v); err != nil {
 				http.Error(w, "save failed", http.StatusInternalServerError)
 				return
 			}
