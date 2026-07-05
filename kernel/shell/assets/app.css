@@ -250,6 +250,56 @@ body.layout-dragging .layout iframe { pointer-events: none; }
     右ペインが空のトラップ状態になる。ビューアが無いのにターミナルをたたむ意味はない) */
 .right-pane.no-viewer.bottom-collapsed .right-bottom { display: flex; }
 
+/* === タブバー横スクロール（viewer / term バー共通） ===
+   バーを .tab-bar-wrap で包み、両端の ‹ › ボタンを data-overflow 状態で出し分ける。
+   バー自体は overflow-x:auto でスクロールし、溢れたタブへボタン/ホイールで辿れる。 */
+.tab-bar-wrap {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.tab-bar-wrap > .viewer-tab-bar,
+.tab-bar-wrap > .term-tab-bar {
+  flex: 1;
+  min-width: 0;
+}
+.tab-scroll-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 22px;
+  flex-shrink: 0;
+  color: var(--meta);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.tab-scroll-btn:hover { color: var(--text); background: var(--bg); }
+/* data-overflow が left/right/both のとき、対応する端のボタンだけ表示する。 */
+.tab-bar-wrap[data-overflow="left"]  > .tab-scroll-btn.left,
+.tab-bar-wrap[data-overflow="both"]  > .tab-scroll-btn.left,
+.tab-bar-wrap[data-overflow="right"] > .tab-scroll-btn.right,
+.tab-bar-wrap[data-overflow="both"]  > .tab-scroll-btn.right { display: flex; }
+/* term バー（ダーク基調）を含む wrap はボタン配色を上書き（.term クラスで分岐）。 */
+.tab-bar-wrap.term .tab-scroll-btn { color: var(--muted); }
+.tab-bar-wrap.term .tab-scroll-btn:hover { color: var(--term-tab-active-fg); background: var(--term-tab-hover); }
+
+/* 見出しラベルは幅で省略し、全文は title 属性の hover ツールチップで見せる。
+   em 基準にして font-size 差に依らず全角約 10〜12 字相当で切る。 */
+.term-tab .tab-label,
+.viewer-tab .tab-label {
+  display: inline-block;
+  max-width: 11em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 /* 右上ビューア（ライト基調・ドキュメント表示） */
 .viewer-tab-bar {
   display: flex;
@@ -257,7 +307,11 @@ body.layout-dragging .layout iframe { pointer-events: none; }
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex-shrink: 0;
+  /* スクロールは ‹ › ボタン/ホイールで行うためネイティブバーは隠す（term バーと揃える）。
+     出しっぱなしだとバー高さを占有し二重の操作系になる。 */
+  scrollbar-width: none;
 }
+.viewer-tab-bar::-webkit-scrollbar { display: none; }
 .viewer-tab {
   padding: 4px 10px;
   border: none;

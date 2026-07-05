@@ -43,6 +43,7 @@ async function main() {
     leftTabs.set(p.id, { p, btn });
     if (!p.hidden) leftBar.appendChild(btn); // hidden はオンデマンド表示まで bar に出さない
   }
+  document.querySelectorAll('.tab-bar-wrap').forEach(initTabBarScroll);
   await focusFromHash();
   globalThis.addEventListener('hashchange', focusFromHash);
 }
@@ -195,7 +196,9 @@ async function openAgentTab(opts) {
   const tabEl = document.createElement('button');
   tabEl.className = 'term-tab';
   tabEl.dataset.tabKey = key;
+  tabEl.title = label || key; // hover で全文（ラベルは CSS で幅省略される）
   const labelSpan = document.createElement('span');
+  labelSpan.className = 'tab-label';
   labelSpan.textContent = label || key;
   const closeBtn = document.createElement('span');
   closeBtn.className = 'close';
@@ -264,6 +267,7 @@ function activateRightTab(key) {
     if (k === key) {
       entry.tabEl.classList.add('active');
       entry.panelEl.style.display = '';
+      scrollTabIntoView(entry.tabEl); // 溢れて隠れたタブを選んだとき可視範囲へ
     } else {
       entry.tabEl.classList.remove('active');
       entry.panelEl.style.display = 'none';
@@ -316,7 +320,9 @@ async function openViewer(opts) {
   const tabEl = document.createElement('button');
   tabEl.className = 'viewer-tab';
   tabEl.dataset.viewerKey = key;
+  tabEl.title = title || key; // hover で全文（ラベルは CSS で幅省略される）
   const labelSpan = document.createElement('span');
+  labelSpan.className = 'tab-label';
   labelSpan.textContent = title || key;
   const closeBtn = document.createElement('span');
   closeBtn.className = 'close';
@@ -381,6 +387,7 @@ function activateViewerTab(key) {
     const on = k === key;
     entry.tabEl.classList.toggle('active', on);
     entry.panelEl.style.display = on ? '' : 'none';
+    if (on) scrollTabIntoView(entry.tabEl); // 溢れて隠れたタブを選んだとき可視範囲へ
   }
 }
 
@@ -555,6 +562,59 @@ function subscribe(topic, onMessage) {
     try { onMessage(data); } catch (_) { /* 購読側のエラーは握りつぶす */ }
   };
   return es;
+}
+
+// ===== タブバー横スクロール（溢れたタブへ ‹ › ボタン / ホイールで辿る） =====
+
+// initTabBarScroll は .tab-bar-wrap 1 つに対し、両端ボタン・ホイール横スクロール・
+// overflow 状態の追従を結線する。バーの内容は動的に増減するため MutationObserver で
+// タブ追加/削除を、ResizeObserver でペインリサイズを拾って data-overflow を更新する。
+function initTabBarScroll(wrap) {
+  const scroller = wrap.querySelector('.viewer-tab-bar, .term-tab-bar');
+  const btnLeft = wrap.querySelector('.tab-scroll-btn.left');
+  const btnRight = wrap.querySelector('.tab-scroll-btn.right');
+  if (!scroller) return;
+
+  const updateOverflow = () => {
+    const max = scroller.scrollWidth - scroller.clientWidth;
+    const x = scroller.scrollLeft;
+    const hasLeft = x > 1;
+    const hasRight = x < max - 1;
+    wrap.dataset.overflow = hasLeft && hasRight ? 'both'
+      : hasLeft ? 'left'
+      : hasRight ? 'right'
+      : 'none';
+  };
+
+  btnLeft && btnLeft.addEventListener('click', () => scroller.scrollBy({ left: -160, behavior: 'smooth' }));
+  btnRight && btnRight.addEventListener('click', () => scroller.scrollBy({ left: 160, behavior: 'smooth' }));
+
+  // 縦ホイールを横スクロールに変換（端まで来たらページに委ねる）。
+  scroller.addEventListener('wheel', (e) => {
+    if (e.deltaY === 0) return;
+    const max = scroller.scrollWidth - scroller.clientWidth;
+    if (max <= 0) return;
+    const x = scroller.scrollLeft;
+    const canScroll = (e.deltaY > 0 && x < max - 1) || (e.deltaY < 0 && x > 1);
+    if (!canScroll) return;
+    e.preventDefault();
+    scroller.scrollLeft += e.deltaY;
+  }, { passive: false });
+
+  scroller.addEventListener('scroll', updateOverflow);
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(updateOverflow).observe(scroller);
+  }
+  new MutationObserver(updateOverflow).observe(scroller, { childList: true, subtree: false });
+  updateOverflow();
+}
+
+// scrollTabIntoView はアクティブ化したタブを可視範囲へスクロールする（溢れて隠れた
+// タブを選んだときに見えるように）。
+function scrollTabIntoView(tabEl) {
+  if (tabEl && typeof tabEl.scrollIntoView === 'function') {
+    tabEl.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }
 }
 
 // agentarium ホスト API を window に公開
