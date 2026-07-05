@@ -31,22 +31,39 @@ export async function render(root) {
   // /terminal/events(SSE) の state イベントで更新する。id は chat レコードの id
   // （= terminal key）と一致するため、履歴行の「実行中」判定に使える。
   const liveStates = new Map();
+  // 最新の chat レコード全件（archive 含む）。SSE の state 更新は record 内容を
+  // 変えないため、再取得せずこのキャッシュ + liveStates から再描画する。
+  let lastAll = [];
 
+  // refreshHistory はサーバから履歴を取得し直してから再描画する（起動/archive 等の
+  // レコード変化があったとき用）。SSE の state 更新は renderHistory を直接呼ぶ。
   async function refreshHistory() {
     try {
       const res = await fetch('/plugins/chat/list');
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      const all = data.items || [];
-      const items = all.filter(r => showArchived() || !r.archived_at);
-      const archivedCount = all.filter(r => r.archived_at).length;
-      const toggle = '<label class="chat-archive-toggle"><input type="checkbox" id="chatArchiveToggle"' +
-        (showArchived() ? ' checked' : '') + '> archive 済み (' + archivedCount + ') を表示</label>';
-      if (!items.length) {
-        hist.innerHTML = toggle + '<p class="empty-section">履歴なし</p>';
-        bindToggle();
-        return;
-      }
+      lastAll = data.items || [];
+    } catch (err) {
+      hist.innerHTML = '<p class="empty-section">取得失敗: ' + esc(String(err)) + '</p>';
+      return;
+    }
+    renderHistory();
+  }
+
+  // renderHistory はキャッシュ済みレコード（lastAll）と現在の liveStates から
+  // 履歴テーブルを描画する。ネットワーク I/O はしない。
+  function renderHistory() {
+    const all = lastAll;
+    const items = all.filter(r => showArchived() || !r.archived_at);
+    const archivedCount = all.filter(r => r.archived_at).length;
+    const toggle = '<label class="chat-archive-toggle"><input type="checkbox" id="chatArchiveToggle"' +
+      (showArchived() ? ' checked' : '') + '> archive 済み (' + archivedCount + ') を表示</label>';
+    if (!items.length) {
+      hist.innerHTML = toggle + '<p class="empty-section">履歴なし</p>';
+      bindToggle();
+      return;
+    }
+    {
       const rows = items.map(r => {
         const created = (r.started_at || '').replace('T', ' ').substring(0, 19);
         const rowCls = r.archived_at ? ' class="row-archived"' : '';
@@ -75,8 +92,6 @@ export async function render(root) {
         rows + '</tbody></table>';
       bindToggle();
       bindRowButtons();
-    } catch (err) {
-      hist.innerHTML = '<p class="empty-section">取得失敗: ' + esc(String(err)) + '</p>';
     }
   }
 
@@ -86,7 +101,7 @@ export async function render(root) {
       t.dataset.bound = '1';
       t.addEventListener('change', () => {
         localStorage.setItem(ARCHIVE_KEY, t.checked ? '1' : '0');
-        refreshHistory();
+        renderHistory(); // 表示切替のみ。レコードは lastAll にあるので再取得不要
       });
     }
   }
@@ -171,13 +186,20 @@ export async function render(root) {
     try {
       sseConn = new EventSource('/terminal/events');
       sseConn.addEventListener('state', e => {
+        // パネルが差し替えられ root が DOM から外れていたら自己クローズする
+        // （app.js に teardown フックが無いため、次イベントで後始末する）。
+        if (!root.isConnected) {
+          try { sseConn.close(); } catch (_) { /* 無視 */ }
+          sseConn = null;
+          return;
+        }
         let payload;
         try { payload = JSON.parse(e.data); } catch (_) { return; }
         liveStates.clear();
         for (const s of (payload.sessions || [])) {
           if (s && s.id) liveStates.set(s.id, s.state);
         }
-        refreshHistory();
+        renderHistory(); // レコードは lastAll にあるので再取得せず再描画
       });
     } catch (_) { /* SSE 不可でも履歴は session_id ベースで動作する */ }
   }

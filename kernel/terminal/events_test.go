@@ -131,6 +131,9 @@ func TestService_StopBroadcastsStateEvent(t *testing.T) {
 		if !strings.Contains(string(msg), "event: state") {
 			t.Fatalf("broadcast not a state event: %q", msg)
 		}
+		if strings.Contains(string(msg), `"id":"t1"`) {
+			t.Fatalf("stopped terminal t1 should be absent from broadcast: %q", msg)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("no state event broadcast after stop")
 	}
