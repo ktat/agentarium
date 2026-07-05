@@ -10,10 +10,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
-	"time"
 
 	"github.com/ktat/agentarium"
+	"github.com/ktat/agentarium/agents/claude"
 	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
@@ -30,57 +29,6 @@ import (
 
 //go:embed sessions-manifest.json
 var sessionsManifestJSON []byte
-
-// claudeAgent は claude バイナリ用の Agent。RunRequest を claude 固有引数に変換する。
-type claudeAgent struct{}
-
-func (claudeAgent) Name() string { return "claude" }
-func (claudeAgent) Invocation(req terminal.RunRequest) (string, []string) {
-	var args []string
-	if req.Model != "" {
-		args = append(args, "--model", req.Model)
-	}
-	if req.Resume != "" {
-		args = append(args, "--resume", req.Resume)
-	}
-	if req.SessionName != "" {
-		args = append(args, "-n", req.SessionName)
-	}
-	return "claude", args
-}
-
-// ResumeArtifact は claude セッション履歴 jsonl のパスを返す（terminal.ResumableAgent）。
-// 存在すれば --resume 可能。sessions プラグインの projects dir 規約を再利用する。
-func (claudeAgent) ResumeArtifact(workDir, sessionID string) string {
-	if sessionID == "" {
-		return ""
-	}
-	dir, err := sessions.SessionsDirFor(workDir)
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, sessionID+".jsonl")
-}
-
-// ListSessionIDs は現在の claude セッション識別子を新しい順で返す（terminal.SessionDetector）。
-// カーネルが新規起動セッションの UUID 検出（再開用の紐付け）に使う。
-func (claudeAgent) ListSessionIDs(workDir string) []string {
-	return sessions.SessionIDs(workDir)
-}
-
-// claudePermission は claude の許可プロンプト検出パターン。StatePatterns は行ごと/
-// tick ごとに高頻度で呼ばれるため、正規表現はパッケージ変数に切り出して再コンパイルを避ける。
-var claudePermission = regexp.MustCompile(`(?i)do you want to proceed`)
-
-// StatePatterns は claude TUI の PTY 出力に対する状態検出パラメータ（terminal.StateAware）。
-func (claudeAgent) StatePatterns() terminal.StatePatterns {
-	return terminal.StatePatterns{
-		Permission:       claudePermission,
-		SustainedRunning: 2 * time.Second,
-		IdleTimeout:      1500 * time.Millisecond,
-		BurstGap:         time.Second,
-	}
-}
 
 // secretsPaths は設定データと鍵ファイルのパスを返す（os.UserConfigDir 配下）。
 func secretsPaths() (data, key string, err error) {
@@ -186,7 +134,7 @@ func runServer() error {
 	chatStore := store.New[chat.ChatRecord](chatPath)
 
 	agents := terminal.NewAgentRegistry("claude")
-	agents.Register(claudeAgent{})
+	agents.Register(claude.New())
 	wrapStorePath, err := terminalStorePath("wrap")
 	if err != nil {
 		return err
