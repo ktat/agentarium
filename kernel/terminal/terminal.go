@@ -123,6 +123,7 @@ type TerminalBackend interface {
 	SetSessionID(id, sessionID string)
 	List() []SessionInfo
 	AddStateListener(StateListener)
+	AddSessionListener(SessionListener)
 	// Restore は起動時に永続化レコードから復元する（spec §B）。SessionID を持つレコードに
 	// のみ canResume を適用し、false を返すものは skip する（SessionID の無いレコードは
 	// resume 対象でないため canResume に関わらず常に復元する）。store を持たない backend は
