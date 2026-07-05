@@ -233,3 +233,23 @@ func TestRestoreFromStoreLazy_SkipsWhenCannotResumeXterm(t *testing.T) {
 		t.Fatalf("want (0,1) when cannot resume, got (%d,%d)", pending, total)
 	}
 }
+
+func TestRegistry_SessionListenerFiresOnAssign(t *testing.T) {
+	r := NewRegistry("", nil)
+	if _, err := r.Start("t1", "L", catAgent{}, terminal.RunRequest{}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	var got []string
+	r.AddSessionListener(func(id, sid string) { got = append(got, id+"="+sid) })
+
+	r.SetSessionID("t1", "s1")      // 空→非空: 発火
+	r.SetSessionID("t1", "s1")      // 同値: 発火しない
+	r.SetSessionID("t1", "")        // 非空→空: 発火しない
+	r.SetSessionID("t1", "s2")      // 別値: 発火
+	r.SetSessionID("missing", "s3") // 存在しない id: 発火しない
+
+	want := []string{"t1=s1", "t1=s2"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}

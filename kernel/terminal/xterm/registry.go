@@ -24,14 +24,15 @@ type StateListener = terminal.StateListener
 // r.* を呼ぶ経路—を作ってはならない。両者が混在するとデッドロックする。Process の
 // onExit は cleanup() 内で別 goroutine から発火するため r.Remove が安全に r.mu を取れる。
 type Registry struct {
-	mu             sync.Mutex
-	processes      map[string]*entry
-	sessionIndex   map[string]string // SessionID → ID の逆引き
-	workDir        string
-	agents         *terminal.AgentRegistry // lazy 復元が Agent 名解決に使う（nil 可）
-	store          *terminal.Store         // nil なら永続化なし
-	observer       ObserverHooks
-	stateListeners []StateListener
+	mu               sync.Mutex
+	processes        map[string]*entry
+	sessionIndex     map[string]string // SessionID → ID の逆引き
+	workDir          string
+	agents           *terminal.AgentRegistry // lazy 復元が Agent 名解決に使う（nil 可）
+	store            *terminal.Store         // nil なら永続化なし
+	observer         ObserverHooks
+	stateListeners   []StateListener
+	sessionListeners []terminal.SessionListener
 	// lazy warmup 用の lifecycle（registry_lazy.go が使う）。
 	done          chan struct{}
 	closed        bool
@@ -80,6 +81,16 @@ func (r *Registry) AddStateListener(l StateListener) {
 	}
 	r.mu.Lock()
 	r.stateListeners = append(r.stateListeners, l)
+	r.mu.Unlock()
+}
+
+// AddSessionListener はセッション ID 割当 callback を追加する（nil は無視）。
+func (r *Registry) AddSessionListener(l terminal.SessionListener) {
+	if l == nil {
+		return
+	}
+	r.mu.Lock()
+	r.sessionListeners = append(r.sessionListeners, l)
 	r.mu.Unlock()
 }
 
@@ -229,21 +240,34 @@ func (r *Registry) Label(id string) string {
 }
 
 // SetSessionID は id のエントリにセッション識別子を紐付け、逆引き index を更新し永続化する。
+// 空→非空（または別値）へ変わったときだけ、ロック外で sessionListeners を発火する。
 func (r *Registry) SetSessionID(id, sessionID string) {
 	r.mu.Lock()
 	e, ok := r.processes[id]
+	changed := false
+	var listeners []terminal.SessionListener
 	if ok {
-		if e.SessionID != "" {
-			delete(r.sessionIndex, e.SessionID)
+		prev := e.SessionID
+		if prev != "" {
+			delete(r.sessionIndex, prev)
 		}
 		e.SessionID = sessionID
 		if sessionID != "" {
 			r.sessionIndex[sessionID] = id
 		}
+		if sessionID != "" && sessionID != prev {
+			changed = true
+			listeners = append([]terminal.SessionListener(nil), r.sessionListeners...)
+		}
 	}
 	r.mu.Unlock()
 	if ok {
 		r.persist()
+	}
+	if changed {
+		for _, l := range listeners {
+			l(id, sessionID)
+		}
 	}
 }
 

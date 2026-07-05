@@ -108,6 +108,11 @@ type ObserverBackend interface {
 // StateListener は entry の状態遷移時に呼ばれる callback。source は "hook"|"pty"|"init"。
 type StateListener func(id string, prev, next SessionState, source string)
 
+// SessionListener は端末に再開識別子が割り当てられたとき呼ばれる callback。
+// id は terminal id、sessionID は割り当てられた識別子。sessionID が空、または
+// 旧値と同じ場合は呼ばれない。SetState の作法と同様、registry ロック外で呼ばれる。
+type SessionListener func(id, sessionID string)
+
 // TerminalBackend はターミナルのドメイン操作面。agent でプロセスを起動/停止/入力し、
 // 一覧・セッション ID を扱う。transport（HTTP/WS/assets）からは独立。
 type TerminalBackend interface {
