@@ -144,10 +144,14 @@ async function focusFromHash() {
 // activate はプラグインを stale-safe に描画する。共有 panel へ直接 render すると、
 // タブ高速切替で複数プラグインの非同期 render が同じ panel に append し合い内容が積み重なる
 // （切替後タブに別タブの内容が混入 / Topics のスピナー残り）。そこで世代トークンで
-// 「最新の activate 以外」を破棄し、描画は未接続の staging へ行ってから panel へ移し替える。
+// 「最新の activate 以外」を破棄し、描画は未接続の staging へ行ってから panel へ挿す。
+// staging は plugin へ渡す root そのもの。これを panel の子として残すことで、⚙/🔄 等の
+// 「render 後に root へ再描画する」操作も可視ツリーに着地する（root を detach して childNodes
+// だけ移すと、そうした再描画が画面に出ない不具合になる）。
 async function activate(p, panel, params) {
   const gen = ++leftActivationSeq;
   const staging = document.createElement('div');
+  staging.className = 'panel-body'; // レイアウト非破壊のための素の block ラッパ
   try {
     const mod = await import('/plugins/' + p.id + '/assets/index.js');
     if (gen !== leftActivationSeq) return; // import 中に別タブへ切替 → このactivateは破棄
@@ -160,9 +164,9 @@ async function activate(p, panel, params) {
     staging.textContent = 'failed to load plugin ' + p.id + ': ' + e;
   }
   if (gen !== leftActivationSeq) return; // render 中に別タブへ切替 → 画面に出さず破棄
-  // staging の子ノードを panel 直下へ移し替える。ラッパを挟まないので既存レイアウトは非破壊、
-  // ノード同一性が保たれるため render 後の fire-and-forget な要素更新も正しく着地する。
-  panel.replaceChildren(...staging.childNodes);
+  // staging（=plugin の root）を panel の唯一の子として挿す。root が DOM に残るため、
+  // render 後の root への再描画（settings の ⚙→showForm 等）も正しく画面に出る。
+  panel.replaceChildren(staging);
 }
 
 // ===== agentarium ホスト API =====
