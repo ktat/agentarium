@@ -10,6 +10,7 @@ const leftTabs = new Map(); // pluginId → {p, btn}
 let currentLeftTab = null;
 let leftBar = null; // 左タブバー（main で代入。activateLeftTab が参照）
 let leftPanel = null; // 左ペインのプラグイン描画先（同上）
+let leftActivationSeq = 0; // 左ペイン activate の世代トークン。stale な非同期 render を捨てるのに使う
 let rendererName = null;
 
 // command 注入のタイミング定数。claude などの TUI は
@@ -140,18 +141,28 @@ async function focusFromHash() {
   }
 }
 
+// activate はプラグインを stale-safe に描画する。共有 panel へ直接 render すると、
+// タブ高速切替で複数プラグインの非同期 render が同じ panel に append し合い内容が積み重なる
+// （切替後タブに別タブの内容が混入 / Topics のスピナー残り）。そこで世代トークンで
+// 「最新の activate 以外」を破棄し、描画は未接続の staging へ行ってから panel へ移し替える。
 async function activate(p, panel, params) {
-  panel.innerHTML = '';
+  const gen = ++leftActivationSeq;
+  const staging = document.createElement('div');
   try {
     const mod = await import('/plugins/' + p.id + '/assets/index.js');
+    if (gen !== leftActivationSeq) return; // import 中に別タブへ切替 → このactivateは破棄
     if (typeof mod.render === 'function') {
-      await mod.render(panel, { pluginId: p.id, params });
+      await mod.render(staging, { pluginId: p.id, params });
     } else {
-      panel.textContent = 'plugin ' + p.id + ' has no render()';
+      staging.textContent = 'plugin ' + p.id + ' has no render()';
     }
   } catch (e) {
-    panel.textContent = 'failed to load plugin ' + p.id + ': ' + e;
+    staging.textContent = 'failed to load plugin ' + p.id + ': ' + e;
   }
+  if (gen !== leftActivationSeq) return; // render 中に別タブへ切替 → 画面に出さず破棄
+  // staging の子ノードを panel 直下へ移し替える。ラッパを挟まないので既存レイアウトは非破壊、
+  // ノード同一性が保たれるため render 後の fire-and-forget な要素更新も正しく着地する。
+  panel.replaceChildren(...staging.childNodes);
 }
 
 // ===== agentarium ホスト API =====

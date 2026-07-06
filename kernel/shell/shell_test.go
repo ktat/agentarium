@@ -77,3 +77,24 @@ func TestTabOverflow_WrapAndScrollButtons(t *testing.T) {
 		}
 	}
 }
+
+// TestActivate_StaleGuard は左ペイン activate が世代トークンで stale な非同期 render を破棄し、
+// 未接続の staging へ描画してから panel へ移し替える構造（タブ高速切替での内容積み重なり対策）を検証する。
+func TestActivate_StaleGuard(t *testing.T) {
+	js := readAsset(t, "app.js")
+	for _, frag := range []string{
+		"leftActivationSeq",                            // 世代トークン
+		"const gen = ++leftActivationSeq",              // activate 開始で世代を採番
+		"if (gen !== leftActivationSeq) return",        // stale なら破棄
+		"createElement('div')",                         // 未接続 staging へ描画
+		"panel.replaceChildren(...staging.childNodes)", // 最新のみ移し替え
+	} {
+		if !strings.Contains(js, frag) {
+			t.Errorf("app.js に %q が無い (activate の stale ガード欠落)", frag)
+		}
+	}
+	// 旧実装の「panel へ直接クリア＆描画」は積み重なりの原因なので残っていないこと。
+	if strings.Contains(js, "panel.innerHTML = ''") {
+		t.Errorf("app.js に旧 activate の panel.innerHTML='' が残存（stale render が積み重なる）")
+	}
+}
