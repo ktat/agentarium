@@ -190,12 +190,13 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 		go terminal.WatchNewSessionFromBaseline(det, r.workDir, baseline,
 			func(s string) bool {
 				r.mu.Lock()
-				defer r.mu.Unlock()
 				if r.sessionIndex[s] != "" {
+					r.mu.Unlock()
 					return false // 既に別 terminal に割当済み
 				}
 				e, ok := r.processes[id]
 				if !ok {
+					r.mu.Unlock()
 					return false
 				}
 				if e.SessionID != "" {
@@ -203,6 +204,16 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 				}
 				e.SessionID = s
 				r.sessionIndex[s] = id
+				listeners := append([]terminal.SessionListener(nil), r.sessionListeners...)
+				r.mu.Unlock()
+				// 永続化と listener 発火はロック外で行う（SetSessionID と同じ作法。
+				// consumer callback をロック内で呼ぶと deadlock/再入の恐れがあるため）。
+				// これで検出経由でも SessionListener が発火し、consumer が resume 用に
+				// session_id を永続化できる（設計 spec のデータフローどおり）。
+				r.persist()
+				for _, l := range listeners {
+					l(id, s)
+				}
 				return true
 			},
 			stop)
