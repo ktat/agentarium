@@ -195,7 +195,10 @@ func (r *Registry) Start(id, label string, ag terminal.Agent, req terminal.RunRe
 					return false // 既に別 terminal に割当済み
 				}
 				e, ok := r.processes[id]
-				if !ok {
+				if !ok || e != ent {
+					// stop→再 start で同一 id に別 entry が入った後に、
+					// 遅延した旧ウォッチャが検出結果を新 entry へ誤紐付けするのを防ぐ
+					// （SetOnExit の removeIfSame(id, ent) と同じポインタ同一性ガード）。
 					r.mu.Unlock()
 					return false
 				}
