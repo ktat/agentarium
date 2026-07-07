@@ -16,11 +16,9 @@ import (
 	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
-	"github.com/ktat/agentarium/kernel/settings"
 	"github.com/ktat/agentarium/kernel/store"
 	"github.com/ktat/agentarium/kernel/terminal"
-	"github.com/ktat/agentarium/kernel/terminal/wrap"
-	"github.com/ktat/agentarium/kernel/terminal/xterm"
+	"github.com/ktat/agentarium/kernel/terminal/standard"
 	"github.com/ktat/agentarium/plugins/chat"
 	"github.com/ktat/agentarium/plugins/hello"
 	"github.com/ktat/agentarium/plugins/sessions"
@@ -40,18 +38,8 @@ func secretsPaths() (data, key string, err error) {
 	return filepath.Join(base, "settings.json"), filepath.Join(base, "secret.key"), nil
 }
 
-// terminalStorePath は renderer 別のセッション永続化ファイルパスを返す
-// （UserConfigDir/agentarium/terminal-<renderer>.json）。
-func terminalStorePath(renderer string) (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "agentarium", "terminal-"+renderer+".json"), nil
-}
-
 // chatStorePath は chat 履歴の永続化ファイルパスを返す
-// （os.UserConfigDir 配下、terminalStorePath と同じ流儀）。
+// （os.UserConfigDir/agentarium 配下）。
 func chatStorePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -135,40 +123,23 @@ func runServer() error {
 
 	agents := terminal.NewAgentRegistry("claude")
 	agents.Register(claude.New())
-	wrapStorePath, err := terminalStorePath("wrap")
+
+	// 標準ターミナル配線（両 backend + settings 駆動 active + renderer 別 Store + CanResume）。
+	// Store は <UserConfigDir>/agentarium/terminal-<renderer>.json。active 変更は再起動で反映。
+	cfgDir, err := os.UserConfigDir()
 	if err != nil {
 		return err
 	}
-	xtermStorePath, err := terminalStorePath("xterm")
-	if err != nil {
-		return err
-	}
-	// xterm / wrap 両 backend をコンパイルに含めて登録し、実行時に active を選ぶ。
-	// Store 付きにすることで再起動越えのセッション復元（lazy restore）が有効になる。
-	xtermBackend := &xterm.Backend{Registry: xterm.NewRegistryWithStore(wd, agents, terminal.NewStore(xtermStorePath))}
-	wrapBackend := &wrap.Backend{Registry: wrap.NewRegistryWithStore(wd, agents, wrap.NewStore(wrapStorePath))}
-	// active backend は Settings（kernel.terminal_renderer）→ env → 既定 xterm の順で決定。
-	active := settings.TerminalRenderer(sec)
-	if active == "" {
-		active = terminal.EnvActiveBackend()
-	}
-	// canResume: 永続レコードの Agent を解決し、その Agent が表明する artifact の存在で
-	// resume 可否を判定する（claude なら jsonl 存在チェック）。
-	// 永続レコードは常に具体的な Agent 名を持つ前提。agents.Resolve が nil を返す
-	// （空名 / 未登録）場合は CanResume が楽観的に true を返す（resolveAgent の Default
-	// fallback とは非対称だが、未知 agent は復元側で既に skip 済みのため実害なし）。
-	canResume := func(rec terminal.SessionRecord) bool {
-		return sessions.CanResume(agents.Resolve(rec.Agent), rec.WorkDir, rec.SessionID)
-	}
-	svc, err := terminal.NewService(terminal.ServiceConfig{
-		Agents:    agents,
-		Backends:  []terminal.Backend{xtermBackend, wrapBackend},
-		Active:    active,
-		CanResume: canResume,
+	svc, err := standard.NewService(standard.Config{
+		WorkDir:  wd,
+		Agents:   agents,
+		Secrets:  sec,
+		StoreDir: filepath.Join(cfgDir, "agentarium"),
 	})
 	if err != nil {
 		return err
 	}
+	log.Printf("agentarium: active terminal renderer = %q", svc.Active().Name())
 
 	app := agentarium.New()
 	if err := app.Register(
@@ -185,7 +156,6 @@ func runServer() error {
 	app.WithSecrets(sec)
 	app.WithTerminal(svc)
 	app.WithPet(pet.New(sec, svc.EventSubscriberCount))
-	log.Printf("agentarium: active terminal renderer = %q", active)
 
 	addr := os.Getenv("AGENTARIUM_ADDR")
 	log.Printf("agentarium demo starting (addr=%q, empty=default)", addr)

@@ -1,26 +1,10 @@
 package sessions
 
-import (
-	"os"
+import "github.com/ktat/agentarium/kernel/terminal"
 
-	"github.com/ktat/agentarium/kernel/terminal"
-)
-
-// CanResume は ag が terminal.ResumableAgent なら artifact の存在で resume 可否を判定する。
-// 判定材料が無い（interface 非対応 / artifact 空 / nil agent）なら true（楽観: 無効 resume は
-// 起動時に自然失敗する）。terminal.ServiceConfig.CanResume フィールドとして渡す想定。
-//
-// 注: scanner.go は kernel/terminal に依存しない方針だが、本ファイルは Agent の所在表明
-// (ResumableAgent) と判定ロジックを橋渡しするため terminal を import する。
+// CanResume は terminal.CanResume への後方互換ラッパ。実体は kernel/terminal に移設済み
+// （kernel → plugin の層違反を避けつつ standard パッケージからも使えるようにするため）。
+// terminal.ServiceConfig.CanResume フィールドとして渡す想定。
 func CanResume(ag terminal.Agent, workDir, sessionID string) bool {
-	ra, ok := ag.(terminal.ResumableAgent)
-	if !ok {
-		return true
-	}
-	art := ra.ResumeArtifact(workDir, sessionID)
-	if art == "" {
-		return true
-	}
-	_, err := os.Stat(art)
-	return err == nil
+	return terminal.CanResume(ag, workDir, sessionID)
 }
