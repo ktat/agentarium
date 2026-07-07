@@ -39,7 +39,7 @@ func secretsPaths() (data, key string, err error) {
 }
 
 // chatStorePath は chat 履歴の永続化ファイルパスを返す
-// （os.UserConfigDir 配下、terminalStorePath と同じ流儀）。
+// （os.UserConfigDir/agentarium 配下）。
 func chatStorePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
