@@ -594,7 +594,7 @@ EOF
 `README.md`（agentarium）の 324 行目付近、`- 保存先（参照デモ）: ...terminal-<renderer>.json（renderer 別）` の行を次に更新:
 
 ```
-- 保存先: `<StoreDir>/terminal-<renderer>.json`（renderer 別）。標準ヘルパ `kernel/terminal/standard.NewService` に `StoreDir` を渡すと有効になる（参照デモ・board-assistant いずれも `<os.UserConfigDir>/<app>/`）
+- 保存先: `<StoreDir>/terminal-<renderer>.json`（renderer 別）。標準ヘルパ `kernel/terminal/standard.NewService` に `StoreDir` を渡すと有効になる（参照デモは `<os.UserConfigDir>/agentarium/`）
 ```
 
 - [ ] **Step 2: agentarium README — ターミナル配線の推奨手段を追記**
