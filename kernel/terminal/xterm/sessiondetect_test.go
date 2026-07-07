@@ -62,6 +62,42 @@ func TestRegistry_FreshStartDetectsAndSetsSessionID(t *testing.T) {
 	}
 }
 
+func TestRegistry_FreshStartFiresSessionListener(t *testing.T) {
+	oi, ot := terminal.SessionWatchInterval, terminal.SessionWatchTimeout
+	terminal.SessionWatchInterval = 5 * time.Millisecond
+	terminal.SessionWatchTimeout = 2 * time.Second
+	defer func() { terminal.SessionWatchInterval, terminal.SessionWatchTimeout = oi, ot }()
+
+	r := NewRegistry("", nil)
+	var mu sync.Mutex
+	var fired []string
+	r.AddSessionListener(func(id, sid string) {
+		mu.Lock()
+		defer mu.Unlock()
+		fired = append(fired, id+"="+sid)
+	})
+	if _, err := r.Start("chat-3", "L", &detectCatAgent{}, terminal.RunRequest{}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() { _ = r.Stop("chat-3") }()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(fired)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(fired) != 1 || fired[0] != "chat-3=new-uuid" {
+		t.Fatalf("session listener should fire once for detected session; got %v", fired)
+	}
+}
+
 func TestRegistry_ResumeStartSetsSessionIDImmediately(t *testing.T) {
 	r := NewRegistry("", nil)
 	if _, err := r.Start("chat-2", "L", &detectCatAgent{}, terminal.RunRequest{Resume: "resume-uuid"}); err != nil {
