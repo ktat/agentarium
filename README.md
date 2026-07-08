@@ -28,6 +28,19 @@ func main() {
 
 ファサード `agentarium`（`New` / `Register` / `WithTerminal` / `WithTitle` / `WithFavicon` / `Handler` / `Run` / `Shutdown` / `SetTabOrder`）と、生パッケージ（`kernel/plugin` / `kernel/server` / `kernel/shell` / `kernel/terminal` / `kernel/store`）の両方が public です。
 
+### 消費者 go.mod に必須の `replace`（wrap ターミナルを使う場合）
+
+wrap ターミナル backend は端末エミュレータに `charmbracelet/x/ansi` を使いますが、upstream には **OSC 文字列中の UTF-8 マルチバイト文字が C1 制御バイト（0x80–0x9F）と誤認され、OSC が中途終了して残りバイトが画面に漏れる**バグがあります（例: タイトルに「作成」「達成」等の漢字が含まれると、その一部がプロンプト行に化けて出る）。Agentarium は回避 fork を `replace` で差し込んでいますが、**Go modules は依存モジュールの `replace` をメインモジュールのビルドでは無視する**ため、消費者リポの `go.mod` にも同一の `replace` を書かないと fork が効かず、バグが再発します。
+
+```
+// 消費者リポの go.mod に、agentarium と同じ replace をコピーする
+replace github.com/charmbracelet/x/ansi => github.com/ktat/x/ansi v0.0.0-20260604104346-6d0878b777c6
+```
+
+- バージョン（pseudo-version）は **agentarium 側の `go.mod` と一致させる**こと。agentarium が fork を上げたら消費者側も追随する。ズレると不整合になる。
+- この fork は module パスを `github.com/charmbracelet/x/ansi` のまま宣言しているため、`require github.com/ktat/x/ansi` では差し込めない（`replace` 専用）。
+- 効いているかの確認: `go list -m github.com/charmbracelet/x/ansi` が `=> github.com/ktat/x/ansi ...` を返せば OK。upstream の `v0.11.x` のままなら未適用。
+
 ### `WithTitle` / `WithFavicon` でシェルの見た目を上書き
 
 `WithTitle(name)` はブラウザタブの `<title>` と左上ヘッダ名を消費者アプリ名に差し替えます。`WithFavicon(href)` は `<head>` に `<link rel="icon" href="...">` を注入します。`href` は data URI・自作プラグインの資産パス（例 `/plugins/foo/assets/icon.png`）・絶対 URL のいずれでもよく、favicon 実体の配信は消費者責任です。どちらもチェーン可能で、未設定なら既定（無アイコン / `Agentarium`）のままです。
