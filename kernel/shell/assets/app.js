@@ -311,7 +311,7 @@ function persistRightTabs() {
   } catch (_) { /* 無視 */ }
 }
 
-// restoreRightTabs: reload 前に開いていた Agent タブを復元する。key 列を
+// restoreRightTabs は reload 前に開いていた Agent タブを復元する。key 列を
 // /terminal/list の生存分だけ silent:true で再オープンし、保存アクティブを前面へ
 // 戻す。list に無い id（閉じた/失われた）は静かに破棄する。
 async function restoreRightTabs() {
@@ -339,7 +339,9 @@ async function restoreRightTabs() {
   for (const key of saved.keys) {
     const it = byId.get(key);
     if (!it) continue; // list に無い = 破棄
-    await openAgentTab({ key, label: it.Label || it.label || key, silent: true });
+    try {
+      await openAgentTab({ key, label: it.Label || it.label || key, silent: true });
+    } catch (_) { /* 1 タブの復元失敗は無視して残りを続行 */ }
   }
   if (saved.active && rightTabs.has(saved.active)) {
     activateRightTab(saved.active);
