@@ -45,6 +45,7 @@ async function main() {
     if (!p.hidden) leftBar.appendChild(btn); // hidden はオンデマンド表示まで bar に出さない
   }
   document.querySelectorAll('.tab-bar-wrap').forEach(initTabBarScroll);
+  await restoreRightTabs();
   await focusFromHash();
   globalThis.addEventListener('hashchange', focusFromHash);
 }
@@ -180,11 +181,12 @@ async function activate(p, panel, params) {
 //   command: タブを開いた直後に inject するテキスト（省略時は何もしない）
 //   autoEnter: true なら command 末尾に \r を付与
 async function openAgentTab(opts) {
-  const { key, label, agent, model, resume, command, autoEnter } = opts || {};
+  const { key, label, agent, model, resume, command, autoEnter, silent } = opts || {};
   if (!key) { console.warn('openAgentTab: key is required'); return; }
   if (!rendererName) {
     rendererName = await loadRendererName();
     if (!rendererName) {
+      if (silent) { console.warn('openAgentTab: terminal service not wired'); return; }
       alert('Terminal Service が結線されていません');
       return;
     }
@@ -203,6 +205,7 @@ async function openAgentTab(opts) {
   if (resume) startQS.set('resume', resume);
   const startRes = await fetch('/terminal/start?' + startQS.toString(), { method: 'POST' });
   if (!startRes.ok && startRes.status !== 204) {
+    if (silent) { console.warn('openAgentTab: start failed ' + startRes.status); return; }
     alert('start failed: ' + startRes.status);
     return;
   }
@@ -291,6 +294,58 @@ function activateRightTab(key) {
   // ペイン底に置いた empty メッセージは隠す
   const initial = document.getElementById('right-panel');
   if (initial) initial.style.display = 'none';
+  persistRightTabs();
+}
+
+// persistRightTabs は現在開いている Agent タブの key 列とアクティブ key を
+// localStorage に保存する。reload 時に restoreRightTabs がこれを読み、直前に
+// 開いていたタブだけを復元する。書き込みは制限環境で throw しても動作を止めない。
+function persistRightTabs() {
+  const keys = Array.from(rightTabs.keys());
+  let active = null;
+  for (const [k, entry] of rightTabs) {
+    if (entry.tabEl.classList.contains('active')) { active = k; break; }
+  }
+  try {
+    localStorage.setItem('agentarium.rightTabs', JSON.stringify({ keys, active }));
+  } catch (_) { /* 無視 */ }
+}
+
+// restoreRightTabs は reload 前に開いていた Agent タブを復元する。key 列を
+// /terminal/list の生存分だけ silent:true で再オープンし、保存アクティブを前面へ
+// 戻す。list に無い id（閉じた/失われた）は静かに破棄する。
+async function restoreRightTabs() {
+  let saved;
+  try {
+    const raw = localStorage.getItem('agentarium.rightTabs');
+    if (!raw) return;
+    saved = JSON.parse(raw);
+  } catch (_) { return; /* 壊れた値は無視 */ }
+  if (!saved || !Array.isArray(saved.keys) || saved.keys.length === 0) return;
+  let items;
+  try {
+    const res = await fetch('/terminal/list');
+    if (!res.ok) return;
+    const data = await res.json();
+    items = (data && data.items) || [];
+  } catch (_) { return; /* list 取得失敗時は復元しない */ }
+
+  const byId = new Map();
+  for (const it of items) {
+    const id = it.ID || it.id;
+    if (id) byId.set(id, it);
+  }
+
+  for (const key of saved.keys) {
+    const it = byId.get(key);
+    if (!it) continue; // list に無い = 破棄
+    try {
+      await openAgentTab({ key, label: it.Label || it.label || key, silent: true });
+    } catch (_) { /* 1 タブの復元失敗は無視して残りを続行 */ }
+  }
+  if (saved.active && rightTabs.has(saved.active)) {
+    activateRightTab(saved.active);
+  }
 }
 
 async function closeAgentTab(key) {
@@ -313,6 +368,7 @@ async function closeAgentTab(key) {
     const initial = document.getElementById('right-panel');
     if (initial) initial.style.display = '';
   }
+  persistRightTabs();
 }
 
 // ===== agentarium ビューア API（右ペイン上部・タブ式） =====
