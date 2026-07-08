@@ -21,7 +21,7 @@ type Meta struct {
 	Title  string
 	Pane   Pane
 	Order  int
-	Hidden bool // true: 起動時にタブを出さない。Settings の「開けるタブ」から開く。開いたタブはクローズ可
+	Hidden bool // true: 起動時にタブを出さない。Settings の「詳細設定」から開く。開いたタブはクローズ可
 }
 
 // Plugin は全プラグインが満たす最小契約。

@@ -46,7 +46,7 @@ async function showList(root) {
     root.appendChild(table);
   }
   await renderPetBlock(root);
-  await renderOpenableTabs(root); // 既存セクション描画の後に「開けるタブ」を追加
+  await renderOpenableTabs(root); // 既存セクション描画の後に「詳細設定」（別タブで開く）を追加
 }
 
 // renderOpenableTabs は hidden プラグインを列挙し「開く」ボタンを出す。
@@ -64,7 +64,7 @@ async function renderOpenableTabs(root) {
   const card = document.createElement('div');
   card.className = 'card';
   const h = document.createElement('h3');
-  h.textContent = '開けるタブ';
+  h.textContent = '詳細設定';
   card.appendChild(h);
   for (const p of hidden) {
     const row = document.createElement('div');
