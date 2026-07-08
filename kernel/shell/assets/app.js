@@ -291,6 +291,21 @@ function activateRightTab(key) {
   // ペイン底に置いた empty メッセージは隠す
   const initial = document.getElementById('right-panel');
   if (initial) initial.style.display = 'none';
+  persistRightTabs();
+}
+
+// persistRightTabs は現在開いている Agent タブの key 列とアクティブ key を
+// localStorage に保存する。reload 時に restoreRightTabs がこれを読み、直前に
+// 開いていたタブだけを復元する。書き込みは制限環境で throw しても動作を止めない。
+function persistRightTabs() {
+  const keys = Array.from(rightTabs.keys());
+  let active = null;
+  for (const [k, entry] of rightTabs) {
+    if (entry.tabEl.classList.contains('active')) { active = k; break; }
+  }
+  try {
+    localStorage.setItem('agentarium.rightTabs', JSON.stringify({ keys, active }));
+  } catch (_) { /* 無視 */ }
 }
 
 async function closeAgentTab(key) {
@@ -313,6 +328,7 @@ async function closeAgentTab(key) {
     const initial = document.getElementById('right-panel');
     if (initial) initial.style.display = '';
   }
+  persistRightTabs();
 }
 
 // ===== agentarium ビューア API（右ペイン上部・タブ式） =====
