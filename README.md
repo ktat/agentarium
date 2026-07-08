@@ -93,7 +93,7 @@ go run ./cmd/agentarium
 
 | interface | 役割 | 自動マウント先 |
 |---|---|---|
-| `Plugin` | `Meta() Meta`（ID / Title / Pane / Order / Hidden）。必須 | タブボタン生成。`Hidden: true` の場合は起動時にタブバーへ出さず、Settings の「開けるタブ」から開く（開いたタブは × で閉じられる） |
+| `Plugin` | `Meta() Meta`（ID / Title / Pane / Order / Hidden）。必須 | タブボタン生成。`Hidden: true` の場合は起動時にタブバーへ出さず、Settings の「詳細設定」から開く（開いたタブは × で閉じられる） |
 | `RouteProvider` | `Routes() []Route` | `/plugins/<id>/...` |
 | `FrontendProvider` | `Assets() fs.FS`（ルートに `index.js`） | `/plugins/<id>/assets/` |
 | `SettingsProvider` | `SettingsSchema() []Field` | Settings 合流。各フィールドは直接入力またはカーネルシークレット参照を選べる |
@@ -179,9 +179,9 @@ Settings タブの **「Kernel」グループ**では、カーネル自身の設
 
 Settings タブの **「Kernel Secrets」グループ**で、プラグイン横断で共有できるシークレット（API キー等）を管理できる。各エントリは登録時に **暗号化（AES-256-GCM）** または **平文** を選べる。CRUD（追加・編集・削除）は UI から行う。
 
-#### 開けるタブ（Hidden プラグイン）
+#### 詳細設定（Hidden プラグイン）
 
-`Meta.Hidden=true` のプラグインは起動時にタブバーへ出ない。Settings タブの **「開けるタブ」セクション**に一覧表示され、「開く」ボタン（`agentarium.openTab(id)`）で左ペインに開ける。開いたタブは × で閉じられる。閉じた/開いた状態は永続化しない（リロードで hidden の既定に戻る）。`#tab=<id>` の deep-link で再オープンできる。
+`Meta.Hidden=true` のプラグインは起動時にタブバーへ出ない。Settings タブの **「詳細設定」セクション**に一覧表示され、「開く」ボタン（`agentarium.openTab(id)`）で左ペインに開ける。開いたタブは × で閉じられる。閉じた/開いた状態は永続化しない（リロードで hidden の既定に戻る）。`#tab=<id>` の deep-link で再オープンできる。
 
 **設定フィールドの参照モード**
 
@@ -293,7 +293,7 @@ data: {"sessions":[{"id":"t1","label":"...","state":"running"}],"counts":{"idle"
 | `plugins/sessions` | `~/.claude/projects/<workdir>` の claude セッション一覧 + Resume |
 | `plugins/chat` | 自由入力テキストを既定エージェントの初期入力として起動 + chat 履歴の一覧/再開/archive。ルート `/plugins/chat/{start,list,update,archive}`、保存先 `<os.UserConfigDir>/agentarium/chat.json` |
 | `plugins/hello` | 最小リファレンスプラグイン（Settings dogfood 付き） |
-| `plugins/slack` | Slack OAuth 2.0 認可フロー + アクセストークン管理。ルート `/plugins/slack/{start,callback,tokens}`、トークン保存先: secrets ストア `slack.tokens`（暗号化）。Settings タブに `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`（暗号化保存）。`Meta.Hidden=true`（既定非表示）。Settings の「開けるタブ」から開く |
+| `plugins/slack` | Slack OAuth 2.0 認可フロー + アクセストークン管理。ルート `/plugins/slack/{start,callback,tokens}`、トークン保存先: secrets ストア `slack.tokens`（暗号化）。Settings タブに `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`（暗号化保存）。`Meta.Hidden=true`（既定非表示）。Settings の「詳細設定」から開く |
 
 ## Agent ターミナル
 
