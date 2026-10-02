@@ -259,6 +259,9 @@ agentarium.closeViewer('doc');
   15 秒ごとに keepalive。
 - フロント補助: `agentarium.subscribe(topic, onMessage)` → `EventSource` を返す（`.close()` 可能）。
   各イベントの `data` を JSON.parse して `onMessage` に渡す。
+- Go からの配信: 同じプロセスのプラグインは `app.Events().Publish(topic, data)`（`data` は JSON の
+  バイト列）で HTTP を経由せずに配信できる。`Handler()` / `Run()` が組むサーバーと同じ Hub を返す。
+  `kernel/server` を直接使う場合は `server.WithEvents(hub)` で同じ Hub を渡す。
 
 ```js
 const es = agentarium.subscribe('my-topic', (data) => console.log(data));

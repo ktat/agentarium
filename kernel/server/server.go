@@ -29,6 +29,7 @@ type config struct {
 	title         string
 	favicon       string
 	themeProvider func() string
+	events        *events.Hub
 }
 
 // WithTitle はシェル HTML の <title> と左上ヘッダ（span.title）を上書きする（消費者アプリ名の表示用）。
@@ -50,6 +51,13 @@ func WithFavicon(href string) Option {
 // それ以外（"" = system/未設定）は無置換（@media / :root に委ねる）。
 func WithThemeProvider(fn func() string) Option {
 	return func(c *config) { c.themeProvider = fn }
+}
+
+// WithEvents は汎用イベントバス（/events/publish・/events）に使う Hub を外から渡す。
+// 消費者が同じ Hub を保持すれば、HTTP を経由せず Go から Hub.Publish で購読者へ配信できる。
+// nil または未指定なら New 内部で新しい Hub を作る（従来どおり）。
+func WithEvents(h *events.Hub) Option {
+	return func(c *config) { c.events = h }
 }
 
 // WithTerminal は terminal.Service を server に統合するオプション。
@@ -92,7 +100,10 @@ func New(reg *plugin.Registry, shellFS fs.FS, opts ...Option) *http.ServeMux {
 	// csrfGuard で cross-origin POST を弾く（render オラクル化防止）。
 	mux.Handle("POST /viewer/render", csrfGuard(viewer.Handler()))
 	// 汎用イベントバス（カーネル pub/sub）。常時マウント。
-	hub := events.New()
+	hub := cfg.events
+	if hub == nil {
+		hub = events.New()
+	}
 	mux.Handle("POST /events/publish", csrfGuard(http.HandlerFunc(hub.HandlePublish)))
 	mux.HandleFunc("GET /events", hub.HandleSubscribe)
 	mux.Handle("GET /assets/", noDirListing(http.StripPrefix("/assets/", http.FileServer(http.FS(shellFS)))))
