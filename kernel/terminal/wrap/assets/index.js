@@ -125,7 +125,15 @@ export async function render(root, ctx) {
     // 20 桁に reflow し、タブ復帰時に一瞬その狭い表示が見えてから ResizeObserver 再発火
     // で通常幅へ戻る (幅が一瞬狭くなる bug)。非表示中は送らず、表示に戻ったときの
     // ResizeObserver 発火で実寸 resize させる。offsetParent は display:none 下で null。
-    if (entry.viewportEl.offsetParent === null) return;
+    // 非表示にしたら送信記録を捨てる。同じ端末を別ウィンドウでも開いていると、
+    // 非表示の間に向こうが PTY を別の寸法へ変えている可能性がある。記録を残すと
+    // 表示に戻ったとき自分の寸法が変わっていないため送らず、PTY が向こうの
+    // 寸法のまま取り残される (表示中のタブの寸法を勝たせる)。
+    if (entry.viewportEl.offsetParent === null) {
+      entry.sentCols = null;
+      entry.sentAltRows = null;
+      return;
+    }
     const m = measureCell();
     entry.fontMetric = m;
     // padding を除いた「文字を置ける寸法」から cols / altRows を出す (contentBox 参照)。

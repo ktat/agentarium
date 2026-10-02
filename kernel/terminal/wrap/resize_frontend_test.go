@@ -137,6 +137,15 @@ func TestIndexJS_sendResizeDedupsAndUsesContentBox(t *testing.T) {
 	entry.viewportEl.clientWidth = 0;
 	sendResize();
 	res.hidden = sentMsgs.length;
+	// 非表示から表示へ戻る (自分の寸法は非表示前と同じ)。非表示の間に別ウィンドウ
+	// が同じ PTY を別の寸法へ変えている可能性があるので、送り直すこと。
+	entry.viewportEl.offsetParent = {};
+	entry.viewportEl.clientWidth = 420;
+	sendResize();
+	res.reshown = sentMsgs.length;
+	res.reshownCols = sentMsgs[sentMsgs.length - 1].cols;
+	sendResize(); // 表示が続く間の同じ寸法は従来どおり省く
+	res.reshownDup = sentMsgs.length;
 	console.log(JSON.stringify(res));
 	`)
 	var got struct {
@@ -144,11 +153,14 @@ func TestIndexJS_sendResizeDedupsAndUsesContentBox(t *testing.T) {
 			Type          string
 			Cols, AltRows int
 		}
-		Dup      int
-		Changed  int
-		LastCols int
-		Resent   int
-		Hidden   int
+		Dup         int
+		Changed     int
+		LastCols    int
+		Resent      int
+		Hidden      int
+		Reshown     int
+		ReshownCols int
+		ReshownDup  int
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("node 出力が JSON でない: %s", out)
@@ -167,6 +179,12 @@ func TestIndexJS_sendResizeDedupsAndUsesContentBox(t *testing.T) {
 	}
 	if got.Hidden != 3 {
 		t.Errorf("非表示中に送信している (累計 %d 件、3 件を期待)", got.Hidden)
+	}
+	if got.Reshown != 4 || got.ReshownCols != 40 {
+		t.Errorf("非表示→表示で同じ寸法を送り直していない (累計 %d 件 / cols=%d、4 件 / cols=40 を期待。別ウィンドウが PTY を別寸法にしていると取り残される)", got.Reshown, got.ReshownCols)
+	}
+	if got.ReshownDup != 4 {
+		t.Errorf("表示が続く間の同じ寸法を再送している (累計 %d 件、4 件を期待)", got.ReshownDup)
 	}
 }
 
