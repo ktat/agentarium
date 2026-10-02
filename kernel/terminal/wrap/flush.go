@@ -128,6 +128,8 @@ func (p *Process) sweepLocked() []LineUpdate {
 			// 静かに無効化される (壊れないが定常 sweep が全行に戻る)。その退行
 			// は TestSweepLocked_consumesTouchedMarks が検知する。
 			touched[y] = nil
+			// 子が書いた (消した) 行は grid が正。shadow 専用の追跡から外す。
+			delete(p.shadowOnly, y)
 			if lu, ok := p.syncRowLocked(y, p.snapshotLine(y)); ok {
 				lines = append(lines, lu)
 			}
@@ -169,11 +171,18 @@ func (p *Process) syncRowLocked(y int, runs []Run) (LineUpdate, bool) {
 // しているため頻度は低い。
 //
 // fallbackToShadow は「grid が空の行を mainShadow で補うか」:
-//   - false (resize 直後): grid だけが正。grid が空なら帳簿からも落とす
+//   - false (resize 直後): grid を正とし、grid が空なら帳簿からも落とす。
+//     ただし shadow 専用行 (p.shadowOnly) で grid も空のままの行は、alt
+//     往復の切り詰めで grid から読めないだけなので残す (落とすと履歴が
+//     client からも mainShadow からも消え、リロードでも戻らない)
 //   - true (alt からの復帰直後): alt 突入時の emu.Resize が main grid を
 //     altRows 行に切り詰めており、それ以降の行は grid から読めない。ここで
 //     grid を正とすると復元源の mainShadow ごと消してしまうため、空行に限り
-//     mainShadow を残す
+//     mainShadow を残し、shadow 専用行として記録する
+//
+// 既知の限界: alt 突入直前に子が消して sweep 前だった行は、alt 突入時点で
+// main grid を読めない (vt は callback 前に画面を切り替える) ため、復帰時に
+// mainShadow から復活しうる。
 func (p *Process) resweepAllRowsLocked(fallbackToShadow bool) []LineUpdate {
 	if p.emu == nil || p.altScreen {
 		return nil
@@ -193,8 +202,16 @@ func (p *Process) resweepAllRowsLocked(fallbackToShadow bool) []LineUpdate {
 		if p.lastSent[y] != "" || !p.blankRowLocked(y) {
 			runs = p.snapshotLine(y)
 		}
-		if fallbackToShadow && len(runs) == 0 {
-			runs = p.mainShadow[y]
+		switch {
+		case len(runs) > 0:
+			delete(p.shadowOnly, y)
+		case fallbackToShadow:
+			if sh := p.mainShadow[y]; len(sh) > 0 {
+				runs = sh
+				p.shadowOnly[y] = true
+			}
+		case p.shadowOnly[y]:
+			continue
 		}
 		if lu, ok := p.syncRowLocked(y, runs); ok {
 			lines = append(lines, lu)
@@ -206,7 +223,8 @@ func (p *Process) resweepAllRowsLocked(fallbackToShadow bool) []LineUpdate {
 // blankRowLocked は y 行が「既定スタイルの空白セルだけ」で構成されるかを返す
 // (p.mu 保持前提)。true のとき snapshotLine は必ず空 runs を返す (末尾の
 // 空白 run は bg 無しなら trim されるため)。bg や属性付きの空白を含む行は
-// false にして snapshotLine に判定を委ねる。
+// false にして snapshotLine に判定を委ねる。cell の Link は見ない
+// (snapshotLine も Link を runs に載せないので判定が一致する)。
 func (p *Process) blankRowLocked(y int) bool {
 	w := p.emu.Width()
 	for x := 0; x < w; x++ {

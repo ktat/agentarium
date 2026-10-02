@@ -59,6 +59,13 @@ type Process struct {
 	// mainShadow: main-screen 中の行 runs を保持。alt 突入時に emulator を
 	// altRows に resize すると main grid が縮むため、alt 復帰時の client 復元用。
 	mainShadow map[int][]Run
+	// shadowOnly: mainShadow にだけ内容があり grid では空の行 (shadow 専用行)。
+	// alt 突入時の emu.Resize が main grid を altRows 行に切り詰めるため、alt
+	// 復帰後は altRows 行目以降の古い履歴が mainShadow にしか残らない。寸法変更
+	// resize の全行照合 (grid を正とする) がこれを「grid で消えた行」と見なして
+	// 履歴を消さないよう、alt 復帰時に記録する。子がその行を書けば (Touched)
+	// grid が正に戻るので外す (flush.go の sweepLocked / resweepAllRowsLocked 参照)。
+	shadowOnly map[int]bool
 
 	subMu sync.Mutex
 	subs  map[int]chan WSMessage
@@ -77,6 +84,7 @@ func NewProcess(workDir, command string, args ...string) *Process {
 		args:        args,
 		lastSent:    map[int]string{},
 		mainShadow:  map[int][]Run{},
+		shadowOnly:  map[int]bool{},
 		subs:        map[int]chan WSMessage{},
 		initialCols: DefaultCols,
 	}
