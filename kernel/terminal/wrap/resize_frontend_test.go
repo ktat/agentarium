@@ -107,6 +107,7 @@ globalThis.getComputedStyle = () => ({ paddingLeft: '10px', paddingRight: '10px'
 const root = { clientWidth: 1000, clientHeight: 800 };
 function measureCell() { return { w: 10, h: 20 }; }
 function positionIme() {}
+function scheduleRender() {}
 const sentMsgs = [];
 const entry = {
   ws: { readyState: 1, send(s) { sentMsgs.push(JSON.parse(s)); } },
@@ -195,7 +196,7 @@ func TestIndexJS_sendResizeDedupsAndUsesContentBox(t *testing.T) {
 func TestIndexJS_resizeObserverIsDebounced(t *testing.T) {
 	src := readIndexJS(t)
 	if !strings.Contains(src, "const debouncedResize = debounce(RESIZE_DEBOUNCE_MS, sendResize);") ||
-		!strings.Contains(src, "new ResizeObserver(debouncedResize)") {
+		!strings.Contains(src, "new ResizeObserver(() => { scheduleRender(); debouncedResize(); })") {
 		t.Error("ResizeObserver がデバウンス経由で sendResize を呼んでいない")
 	}
 	if !strings.Contains(src, "debouncedResize.cancel();") {
