@@ -15,6 +15,42 @@ function ensureCSS() {
   document.head.appendChild(link);
 }
 
+// ResizeObserver 由来の resize 送信をまとめる待ち時間 (ms)。
+// PTY の寸法が変わると子 (TUI) は SIGWINCH のたびに画面を描き直す。レイアウトが
+// 落ち着くまでの途中経過の寸法をすべて送ると、描画途中で次の SIGWINCH が来ては
+// 中断され、幅の違う描画が積み上がる。サーバ側も寸法が変わるたびに全行照合
+// (数 ms〜数十 ms) を走らせるため、最終的な寸法だけを送る。
+const RESIZE_DEBOUNCE_MS = 150;
+
+// contentBox は要素の「実際に中身を置ける」寸法 (padding を除いた幅・高さ) を返す。
+// clientWidth / clientHeight は padding を含む。.twrap-viewport は padding: 4px 8px
+// なので、そのまま割ると左右 16px ぶん (cell 幅 8px 前後なら約 2 桁) 過大な cols を
+// 子へ渡し、子は入りきらない幅で描く。getComputedStyle が padding を返さない
+// 環境では 0 として扱う (従来と同じ値になるだけで壊れはしない)。
+function contentBox(el) {
+  if (!el) return { w: 0, h: 0 };
+  const cs = (typeof getComputedStyle === 'function') ? getComputedStyle(el) : null;
+  const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+  const px = cs ? num(cs.paddingLeft) + num(cs.paddingRight) : 0;
+  const py = cs ? num(cs.paddingTop) + num(cs.paddingBottom) : 0;
+  return { w: Math.max(0, (el.clientWidth || 0) - px), h: Math.max(0, (el.clientHeight || 0) - py) };
+}
+
+// debounce は連続する呼び出しを最後の 1 回にまとめる (トレーリングデバウンス)。
+// 戻り値の cancel() は保留中の呼び出しを捨てる (close 後に送らないため)。
+function debounce(delayMs, fn) {
+  let timer = null;
+  const call = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn(); }, delayMs);
+  };
+  call.cancel = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+  return call;
+}
+
 function wsUrl(id) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return proto + '//' + location.host + '/terminal/ws?id=' + encodeURIComponent(id);
@@ -56,6 +92,8 @@ export async function render(root, ctx) {
     mode: 'main', altRows: 40, cols: 80,
     fontMetric: null, userScrolled: false, pendingRender: 0,
     imePosScheduled: false,
+    // 最後に送った resize の寸法。同じ寸法の再送を省く (sendResize 参照)。
+    sentCols: null, sentAltRows: null,
   };
 
   function measureCell() {
@@ -90,18 +128,26 @@ export async function render(root, ctx) {
     if (entry.viewportEl.offsetParent === null) return;
     const m = measureCell();
     entry.fontMetric = m;
+    // padding を除いた「文字を置ける寸法」から cols / altRows を出す (contentBox 参照)。
     // 表示中でもレイアウト途中で一時的に極小になり得るケースは root を fallback。
-    let vpW = entry.viewportEl.clientWidth;
-    let vpH = entry.viewportEl.clientHeight;
+    const box = contentBox(entry.viewportEl);
+    let vpW = box.w;
+    let vpH = box.h;
     if (vpW < 50 || vpH < 50) {
-      vpW = root.clientWidth || vpW;
-      vpH = root.clientHeight || vpH;
+      const rbox = contentBox(root);
+      vpW = rbox.w || vpW;
+      vpH = rbox.h || vpH;
     }
     // 実寸がまだ取れない (レイアウト前) なら無効な極狭 resize を送らずスキップ。
     if (vpW < 20 || vpH < 20) return;
     const newCols = Math.max(20, Math.floor(vpW / m.w));
     const newAltRows = Math.max(10, Math.floor(vpH / m.h));
     entry.altRows = newAltRows;
+    // 前回送ったのと同じ寸法なら送らない。サーバは寸法不変の resize を捨てるが、
+    // 送らなければ WS 往復も省ける。再接続時は onopen が記録を捨てて必ず送り直す。
+    if (entry.sentCols === newCols && entry.sentAltRows === newAltRows) return;
+    entry.sentCols = newCols;
+    entry.sentAltRows = newAltRows;
     entry.ws.send(JSON.stringify({ type: 'resize', cols: newCols, altRows: newAltRows }));
     // fontMetric 更新後に ime 位置を追従させる (リサイズ直後の render 待ちの間
     // に composition が始まっても候補ウィンドウ位置がずれないように)。
@@ -477,7 +523,11 @@ export async function render(root, ctx) {
 
   attachInputHandlers();
   setupScrollHandler();
-  const ro = new ResizeObserver(() => sendResize());
+  // ResizeObserver はレイアウトが落ち着くまでの途中経過の寸法も逐次通知するので、
+  // デバウンスして最終的な寸法だけを送る (RESIZE_DEBOUNCE_MS 参照)。非表示から
+  // 表示に戻ったときも root の寸法が変わるのでここが発火し、実寸が 1 回だけ届く。
+  const debouncedResize = debounce(RESIZE_DEBOUNCE_MS, sendResize);
+  const ro = new ResizeObserver(debouncedResize);
   ro.observe(root);
 
   let resolveReady;
@@ -510,6 +560,11 @@ export async function render(root, ctx) {
       banner.style.display = 'none';
       // 再接続後はサーバが init snapshot を送り applyMessage('init') が grid を
       // クリア再構築するため、ここでの明示クリアは不要。
+      // 接続直後の resize はデバウンスせず即送る (遅らせると子が既定の桁数で
+      // 描き始める)。サーバ再起動で PTY が作り直されている場合に備え、前回送信の
+      // 記録を捨てて必ず送り直す。
+      entry.sentCols = null;
+      entry.sentAltRows = null;
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => sendResize());
       else sendResize();
       resolveReady && resolveReady();
@@ -528,6 +583,7 @@ export async function render(root, ctx) {
       if (entry.pendingRender) { cancelAnimationFrame(entry.pendingRender); entry.pendingRender = 0; }
       try { entry.ws && entry.ws.close(); } catch (_) { /* 無視 */ }
       try { ro.disconnect(); } catch (_) { /* 無視 */ }
+      debouncedResize.cancel();
     },
     ready,
   };
