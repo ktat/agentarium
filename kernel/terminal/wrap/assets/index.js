@@ -3,7 +3,7 @@
 // 移植元の wrapper renderer を per-tab に適応移植したもの。
 // main 画面は可視域 ± バッファだけを DOM 化する仮想スクロール (vscroll.js 参照)。
 
-import { OVERSCAN_ROWS, syncRows, visibleRange } from './vscroll.js';
+import { OVERSCAN_ROWS, selectionCopyText, selectionRowYs, syncRows, visibleRange } from './vscroll.js';
 
 // SGR 2 (Faint) を opacity でどれだけ薄くするか。xterm.js 互換の autosuggest
 // 視認性 (元の前景色は維持しつつ薄く表示) を目安に調整した値。
@@ -108,8 +108,9 @@ export async function render(root, ctx) {
     // が画面内の行番号なので、モードが変わったら作り直す (rowNodesMode)。
     rowNodes: new Map(), rowNodesMode: null,
     // 直近の描画の最終行 (-1 = 未描画)。positionIme が描画範囲外のカーソル行の
-    // 位置を計算で出してよいかの判定に使う。
-    renderedMaxY: -1,
+    // 位置を計算で出してよいかの判定に使う。renderedFirst / renderedLast は描画
+    // 範囲 (選択の端点として範囲外に残した行は含まない)。
+    renderedMaxY: -1, renderedFirst: 0, renderedLast: -1,
     cursorX: 0, cursorY: 0, cursorHidden: false,
     mode: 'main', altRows: 40, cols: 80,
     fontMetric: null, userScrolled: false, pendingRender: 0,
@@ -392,7 +393,7 @@ export async function render(root, ctx) {
     }
     // カーソル行が描画範囲外 (手動スクロール中など) なら DOM に無い。画面外なので
     // 出さない。
-    const rowEl = entry.rowNodes.get(y);
+    const rowEl = inRendered(y) ? entry.rowNodes.get(y) : null;
     if (!rowEl) { el.style.display = 'none'; return; }
     if (!entry.fontMetric) entry.fontMetric = measureCell();
     const m = entry.fontMetric;
@@ -401,6 +402,21 @@ export async function render(root, ctx) {
     el.style.top = rowEl.offsetTop + 'px';
     el.style.width = m.w + 'px';
     el.style.height = rowEl.offsetHeight + 'px';
+  }
+
+  // inRendered は y が描画範囲内かを返す。選択の端点として範囲外に残した行は
+  // 本来の位置に無い (範囲の直前 / 直後に並べている) ので、位置合わせに使わない。
+  function inRendered(y) {
+    return y >= entry.renderedFirst && y <= entry.renderedLast;
+  }
+
+  // onCopy は選択がこの端末の行の中にあるとき、コピーする文字列を grid から
+  // 組み立てる (selectionCopyText 参照)。端点が端末の外ならブラウザに任せる。
+  function onCopy(e) {
+    const text = e.clipboardData ? selectionCopyText(entry.lineHost, entry.grid, globalThis.getSelection()) : null;
+    if (text === null) return;
+    e.clipboardData.setData('text/plain', text);
+    e.preventDefault();
   }
 
   // scrollToCursor は grid の最終行 (= 実際に何かが書かれた最も下の行、cursor が
@@ -435,7 +451,7 @@ export async function render(root, ctx) {
     // 初期化タイミングに呼ばれると、位置を 0,0 に倒して左上へ flash する。その
     // 場合は更新せず直前の正しい位置を維持する。
     if (entry.renderedMaxY < 0 || y < 0 || y > entry.renderedMaxY) return;
-    const rowEl = entry.rowNodes.get(y);
+    const rowEl = inRendered(y) ? entry.rowNodes.get(y) : null;
     const composing = el.classList.contains('composing');
     // 「行頭 offsetLeft + 列 × セル幅」で重ねる (同梱の完全等幅フォント前提で
     // 列モデルが実描画に一致する)。旧・実描画右端クランプは末尾スペースで張り付く
@@ -507,9 +523,12 @@ export async function render(root, ctx) {
       // viewport の高さで決まる。末尾追従中はこのあと scrollToCursor が末尾へ
       // スナップするので、現在の scrollTop ではなく移動先で範囲を決める (出力が
       // 一度に大量に増えたとき、移動先が spacer の空白にならないように)。
-      const top = entry.userScrolled
-        ? vp.scrollTop
-        : Math.max(0, (maxY + 1) * lineH - vp.clientHeight);
+      // 手動スクロール中でも、grid が縮んだ直後はブラウザがこのあと scrollTop を
+      // 末尾へ詰めるので、詰めた先で範囲を決める (縮む前の位置で決めると、詰めた
+      // 先が spacer の空白になる)。padding は上下の余白ぶん。
+      const padV = vp.clientHeight - contentBox(vp).h;
+      const maxTop = Math.max(0, (maxY + 1) * lineH + padV - vp.clientHeight);
+      const top = entry.userScrolled ? Math.min(vp.scrollTop, maxTop) : maxTop;
       range = visibleRange(top, vp.clientHeight, lineH, 0, maxY, OVERSCAN_ROWS);
     }
     if (entry.rowNodesMode !== entry.mode) {
@@ -517,13 +536,19 @@ export async function render(root, ctx) {
       entry.rowNodes.clear();
       entry.rowNodesMode = entry.mode;
     }
-    entry.spacerTop.style.height = (range.first * lineH) + 'px';
-    entry.spacerBottom.style.height = ((maxY - range.last) * lineH) + 'px';
-    syncRows(entry.lineHost, entry.rowNodes, range.first, range.last, (node, y) => {
+    // 選択の端点の行は範囲外でも残す。残した行は範囲の直前 / 直後に並ぶので、
+    // その行数ぶん spacer を縮めて全体の高さと可視行の位置を保つ。
+    const sel = globalThis.getSelection ? globalThis.getSelection() : null;
+    const pinned = selectionRowYs(entry.lineHost, sel).filter((y) => y <= maxY);
+    const kept = syncRows(entry.lineHost, entry.rowNodes, range.first, range.last, (node, y) => {
       renderRuns(node, entry.grid.get(y) || []);
       node.classList.toggle('twrap-cursor-row', y === entry.cursorY);
-    });
+    }, pinned);
+    entry.spacerTop.style.height = (Math.max(0, range.first - kept.above) * lineH) + 'px';
+    entry.spacerBottom.style.height = (Math.max(0, maxY - range.last - kept.below) * lineH) + 'px';
     entry.renderedMaxY = maxY;
+    entry.renderedFirst = range.first;
+    entry.renderedLast = range.last;
     if (entry.mode === 'alt') {
       if (vp.scrollTop !== 0) vp.scrollTop = 0;
     } else if (!entry.userScrolled) {
@@ -579,6 +604,7 @@ export async function render(root, ctx) {
 
   attachInputHandlers();
   setupScrollHandler();
+  document.addEventListener('copy', onCopy);
   // ResizeObserver はレイアウトが落ち着くまでの途中経過の寸法も逐次通知するので、
   // デバウンスして最終的な寸法だけを送る (RESIZE_DEBOUNCE_MS 参照)。非表示から
   // 表示に戻ったときも root の寸法が変わるのでここが発火し、実寸が 1 回だけ届く。
@@ -643,6 +669,7 @@ export async function render(root, ctx) {
       try { entry.ws && entry.ws.close(); } catch (_) { /* 無視 */ }
       try { ro.disconnect(); } catch (_) { /* 無視 */ }
       debouncedResize.cancel();
+      document.removeEventListener('copy', onCopy);
     },
     ready,
   };

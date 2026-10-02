@@ -60,7 +60,14 @@ class FakeNode {
     this._detach(c);
     return c;
   }
-  _detach(c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; stats.mutations++; }
+  _detach(c) {
+    const i = this.childNodes.indexOf(c);
+    // DOM 仕様どおり、取り除く部分木の中にある選択の端点は (親, 取り除いた位置)
+    // へ移る。行ノードを捨てると選択がそこで潰れる挙動を再現する。
+    fakeSelection._onRemove(c, this, i);
+    this.childNodes.splice(i, 1); c.parentNode = null; stats.mutations++;
+  }
+  contains(n) { for (let x = n; x; x = x.parentNode) if (x === this) return true; return false; }
   remove() { if (this.parentNode) this.parentNode._detach(this); }
   get textContent() { return this.childNodes.map((n) => n.textContent).join(''); }
   set textContent(v) {
@@ -69,7 +76,7 @@ class FakeNode {
   }
 }
 class FakeText extends FakeNode {
-  constructor(t) { super(); this.data = t; }
+  constructor(t) { super(); this.data = t; this.nodeType = 3; }
   get textContent() { return this.data; }
   set textContent(v) { this.data = v; }
 }
@@ -98,6 +105,7 @@ class FakeElement extends FakeNode {
     super();
     stats.created++;
     this.tagName = tag.toUpperCase();
+    this.nodeType = 1;
     this.className = ''; this.style = {}; this.dataset = {}; this.attrs = {}; this.listeners = {};
     this.classList = new FakeClassList(this);
     this._scrollTop = 0;
@@ -123,7 +131,14 @@ class FakeElement extends FakeNode {
     for (const c of this.children) if (inFlow(c)) h += layoutHeight(c);
     return Math.max(VP_H, Math.round(h));
   }
-  get scrollTop() { return this._scrollTop; }
+  get scrollTop() {
+    // 内容が縮んだらブラウザはレイアウト時に scrollTop を詰め、scroll を発火する。
+    if (this === viewport) {
+      const max = Math.max(0, this.scrollHeight - this.clientHeight);
+      if (this._scrollTop > max) { this._scrollTop = max; pendingScrollEvent = true; }
+    }
+    return this._scrollTop;
+  }
   set scrollTop(v) {
     const max = Math.max(0, this.scrollHeight - this.clientHeight);
     const nv = Math.max(0, Math.min(max, v));
@@ -142,6 +157,9 @@ globalThis.cancelAnimationFrame = (id) => { rafQ = rafQ.filter((r) => r.id !== i
 // flushFrames は rAF と (ブラウザと同じく非同期に届く) scroll イベントを
 // 落ち着くまで回し、何フレーム回ったかを返す。描画→scroll→描画のループが
 // 止まらない実装を検知するため上限を設ける。
+// runOneFrame は rAF を 1 フレームぶんだけ回す (scroll イベントは配らない)。
+// scroll で描き直す前の 1 フレーム目に何が見えるかを確かめるため。
+function runOneFrame() { const q = rafQ; rafQ = []; for (const r of q) r.fn(); }
 function flushFrames() {
   let frames = 0;
   while (rafQ.length || pendingScrollEvent) {
@@ -158,7 +176,50 @@ globalThis.clearTimeout = () => {};
 globalThis.getComputedStyle = (el) => (el && el.classList && el.classList.contains('twrap-viewport'))
   ? { paddingLeft: PAD_L + 'px', paddingRight: PAD_L + 'px', paddingTop: PAD_T + 'px', paddingBottom: PAD_B + 'px' }
   : {};
-globalThis.getSelection = () => ({ toString: () => '' });
+// fakeSelection は 1 つの Range だけを持つ疑似 Selection。toString は rootEl 配下
+// のテキストを文書順に並べ、両端点の間を切り出す。
+function textNodesOf(n, out) {
+  out = out || [];
+  if (n instanceof FakeText) out.push(n); else for (const c of n.childNodes) textNodesOf(c, out);
+  return out;
+}
+function pointIndex(container, offset) {
+  // 端点 (container, offset) を rootEl 全体のテキスト上の文字位置に直す。
+  const all = textNodesOf(rootEl);
+  let acc = 0;
+  const startOf = (node) => { let a = 0; for (const t of all) { if (node === t || node.contains(t)) return a; a += t.data.length; } return a; };
+  const endOf = (node) => { let a = 0, last = -1; for (const t of all) { a += t.data.length; if (node.contains(t)) last = a; } return last < 0 ? startOf(node) : last; };
+  if (container instanceof FakeText) return startOf(container) + offset;
+  const kid = container.childNodes[offset];
+  acc = kid ? startOf(kid) : endOf(container);
+  return acc;
+}
+const fakeSelection = {
+  anchorNode: null, anchorOffset: 0, focusNode: null, focusOffset: 0,
+  get rangeCount() { return this.anchorNode ? 1 : 0; },
+  setBaseAndExtent(an, ao, fn, fo) { this.anchorNode = an; this.anchorOffset = ao; this.focusNode = fn; this.focusOffset = fo; },
+  removeAllRanges() { this.anchorNode = this.focusNode = null; },
+  getRangeAt() {
+    const a = pointIndex(this.anchorNode, this.anchorOffset), f = pointIndex(this.focusNode, this.focusOffset);
+    const fw = a <= f;
+    return {
+      startContainer: fw ? this.anchorNode : this.focusNode, startOffset: fw ? this.anchorOffset : this.focusOffset,
+      endContainer: fw ? this.focusNode : this.anchorNode, endOffset: fw ? this.focusOffset : this.anchorOffset,
+      get collapsed() { return a === f; },
+    };
+  },
+  toString() {
+    if (!this.anchorNode) return '';
+    const text = textNodesOf(rootEl).map((t) => t.data).join('');
+    const a = pointIndex(this.anchorNode, this.anchorOffset), f = pointIndex(this.focusNode, this.focusOffset);
+    return text.slice(Math.min(a, f), Math.max(a, f));
+  },
+  _onRemove(node, parent, index) {
+    if (this.anchorNode && node.contains(this.anchorNode)) { this.anchorNode = parent; this.anchorOffset = index; }
+    if (this.focusNode && node.contains(this.focusNode)) { this.focusNode = parent; this.focusOffset = index; }
+  },
+};
+globalThis.getSelection = () => fakeSelection;
 let roCallback = null;
 globalThis.ResizeObserver = class { constructor(cb) { roCallback = cb; } observe() {} disconnect() {} };
 const sockets = [];
@@ -168,7 +229,11 @@ globalThis.WebSocket = class {
   close() {}
 };
 globalThis.location = { protocol: 'http:', host: 'localhost' };
+const docListeners = {};
 globalThis.document = {
+  addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
+  removeEventListener: (t, fn) => { docListeners[t] = (docListeners[t] || []).filter((x) => x !== fn); },
+  dispatch: (t, ev) => { for (const fn of docListeners[t] || []) fn(ev); },
   getElementById: () => ({}),
   head: new FakeElement('head'),
   createElement: (t) => new FakeElement(t),
