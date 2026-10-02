@@ -541,3 +541,35 @@ func abs(f float64) float64 {
 	}
 	return f
 }
+
+// 仮想スクロールは scrollTop から描画範囲を決めて spacer の高さを変えるため、
+// ブラウザの scroll anchoring が scrollTop を書き戻すと scrollTop → 描画範囲 →
+// spacer 高さ → scrollTop の正のフィードバックで端まで走り続ける。viewport で
+// 無効化していること、spacer / lineHost がブロック要素であることを固定する
+// (疑似 DOM はレイアウトを再現しないため CSS は文字列で確認する)。
+func TestWrapCSS_virtualScrollStyles(t *testing.T) {
+	css, err := assetsFS.ReadFile("assets/wrap.css")
+	if err != nil {
+		t.Fatalf("read assets/wrap.css: %v", err)
+	}
+	src := string(css)
+	vp := extractCSSRule(t, src, ".twrap-viewport {")
+	if !strings.Contains(vp, "overflow-anchor: none;") {
+		t.Error(".twrap-viewport に overflow-anchor: none が無い (scroll anchoring で暴走する)")
+	}
+	for _, sel := range []string{".twrap-spacer {", ".twrap-line-host {"} {
+		if !strings.Contains(extractCSSRule(t, src, sel), "display: block;") {
+			t.Errorf("%s が display: block でない", sel)
+		}
+	}
+}
+
+func extractCSSRule(t *testing.T, src, header string) string {
+	t.Helper()
+	i := strings.Index(src, header)
+	if i < 0 {
+		t.Fatalf("wrap.css に %q が無い", header)
+	}
+	end := strings.Index(src[i:], "}")
+	return src[i : i+end]
+}
