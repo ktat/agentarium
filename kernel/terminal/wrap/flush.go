@@ -128,19 +128,100 @@ func (p *Process) sweepLocked() []LineUpdate {
 			// 静かに無効化される (壊れないが定常 sweep が全行に戻る)。その退行
 			// は TestSweepLocked_consumesTouchedMarks が検知する。
 			touched[y] = nil
-			runs := p.snapshotLine(y)
-			key := runsKey(runs)
-			if p.lastSent[y] == key {
-				continue
+			if lu, ok := p.syncRowLocked(y, p.snapshotLine(y)); ok {
+				lines = append(lines, lu)
 			}
-			p.lastSent[y] = key
-			if len(runs) == 0 {
-				delete(p.mainShadow, y)
-			} else {
-				p.mainShadow[y] = runs
-			}
-			lines = append(lines, LineUpdate{Y: y, Runs: runs})
 		}
 	}
 	return lines
+}
+
+// syncRowLocked は main 画面の 1 行ぶんの帳簿 (lastSent / mainShadow) を runs の
+// 内容で更新し、broadcast すべきなら LineUpdate と true を返す。最後に送った
+// 内容と同じなら何も更新せず false。p.mu 保持前提。
+func (p *Process) syncRowLocked(y int, runs []Run) (LineUpdate, bool) {
+	key := runsKey(runs)
+	if p.lastSent[y] == key {
+		return LineUpdate{}, false
+	}
+	p.lastSent[y] = key
+	if len(runs) == 0 {
+		delete(p.mainShadow, y)
+	} else {
+		p.mainShadow[y] = runs
+	}
+	return LineUpdate{Y: y, Runs: runs}, true
+}
+
+// resweepAllRowsLocked は lastSent の帳簿と現在の grid を全行突き合わせ、
+// 差分を LineUpdate として返す (p.mu 保持前提、main 画面専用)。
+//
+// sweepLocked の main 分岐は emulator の Touched マークだけを見るため、マークが
+// 外部要因で破棄されると「grid では消えたのに帳簿には残っている行」が二度と
+// sweep 対象にならない。行が消えたという事実は Touched にしか現れないので、
+// マークを失った時点で差分を知る手段は全行照合しか残らない。vt の Screen.Resize
+// は寸法変更のたびに Touched を無条件で全破棄するため、emu.Resize を呼んだ
+// 直後 (寸法が実際に変わる Process.Resize と alt 画面からの復帰) に 1 回走らせる。
+// コストは O(h × cols) で、既定 5000 行 × 158 桁のとき先頭 500 行だけに内容が
+// ある典型ケースで約 7 ms、全行に内容がある最悪ケースで約 28 ms
+// (BenchmarkResweepAllRowsLocked)。毎 tick の sweep より桁違いに重いが、
+// 寸法が変わる resize はユーザー操作起点で、クライアントも送信を debounce
+// しているため頻度は低い。
+//
+// fallbackToShadow は「grid が空の行を mainShadow で補うか」:
+//   - false (resize 直後): grid だけが正。grid が空なら帳簿からも落とす
+//   - true (alt からの復帰直後): alt 突入時の emu.Resize が main grid を
+//     altRows 行に切り詰めており、それ以降の行は grid から読めない。ここで
+//     grid を正とすると復元源の mainShadow ごと消してしまうため、空行に限り
+//     mainShadow を残す
+func (p *Process) resweepAllRowsLocked(fallbackToShadow bool) []LineUpdate {
+	if p.emu == nil || p.altScreen {
+		return nil
+	}
+	h := p.emu.Height()
+	if vr := VirtualRows(); h > vr {
+		h = vr
+	}
+	var lines []LineUpdate
+	for y := 0; y < h; y++ {
+		var runs []Run
+		// 送信済みでない (lastSent が空) 空白行は snapshotLine しても空 runs
+		// になり照合結果も変わらないので、安価な空白判定だけで済ませる。
+		// 既定 5000 行のうち実出力は先頭の一部に限られることが多く、残りの
+		// 空行で snapshotLine (色の hex 化・runs 組み立て) を回すのが支配項に
+		// なるため。
+		if p.lastSent[y] != "" || !p.blankRowLocked(y) {
+			runs = p.snapshotLine(y)
+		}
+		if fallbackToShadow && len(runs) == 0 {
+			runs = p.mainShadow[y]
+		}
+		if lu, ok := p.syncRowLocked(y, runs); ok {
+			lines = append(lines, lu)
+		}
+	}
+	return lines
+}
+
+// blankRowLocked は y 行が「既定スタイルの空白セルだけ」で構成されるかを返す
+// (p.mu 保持前提)。true のとき snapshotLine は必ず空 runs を返す (末尾の
+// 空白 run は bg 無しなら trim されるため)。bg や属性付きの空白を含む行は
+// false にして snapshotLine に判定を委ねる。
+func (p *Process) blankRowLocked(y int) bool {
+	w := p.emu.Width()
+	for x := 0; x < w; x++ {
+		c := p.emu.CellAt(x, y)
+		if c == nil {
+			continue
+		}
+		// uv.Style.IsZero (構造体の == 比較) は interface 比較を伴い、5000 行 ×
+		// cols の走査では支配項になるため、フィールドを個別に nil / 0 判定する。
+		st := &c.Style
+		if (c.Content != "" && c.Content != " ") ||
+			st.Fg != nil || st.Bg != nil || st.UnderlineColor != nil ||
+			st.Underline != 0 || st.Attrs != 0 {
+			return false
+		}
+	}
+	return true
 }

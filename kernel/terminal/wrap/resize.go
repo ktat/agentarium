@@ -61,9 +61,26 @@ func (p *Process) Resize(cols, altRows int) error {
 	if p.ptmx != nil {
 		_ = pty.Setsize(p.ptmx, &pty.Winsize{Rows: uint16(ptyRows), Cols: uint16(cols)})
 	}
+	var lines []LineUpdate
 	if p.emu != nil {
 		p.emu.Resize(cols, ptyRows)
+		// emu.Resize は Touched マークを全破棄する。ここで全行照合をしないと
+		// 「grid では消えたのに帳簿には残っている行」を二度と観測できない
+		// (flush.go の resweepAllRowsLocked 参照)。alt 画面中は sweepLocked が
+		// 毎 tick 全行を見るので resweep は不要 (関数側で弾かれる)。
+		lines = p.resweepAllRowsLocked(false)
 	}
+	cx, cy, ch := p.cursorX, p.cursorY, p.cursorHidden
 	p.mu.Unlock()
+	// broadcast はロック外で行う (flushLoop / Snapshot と同じ方針)。
+	if len(lines) > 0 {
+		p.broadcast(WSMessage{
+			Type:         "update",
+			Lines:        lines,
+			CursorX:      cx,
+			CursorY:      cy,
+			CursorHidden: ch,
+		})
+	}
 	return nil
 }

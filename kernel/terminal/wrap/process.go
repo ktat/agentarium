@@ -472,7 +472,13 @@ func (p *Process) onAltScreenChange(on bool) {
 		mode = "alt"
 	}
 
-	// 復帰時は mainShadow から grid を復元 → snapshot lines に詰める
+	// 切替後の grid 全行を snapshot lines に詰め直す。alt 突入時は alt grid が正。
+	// main 復帰時は emu.Resize が Touched を全破棄しているため全行照合で帳簿を
+	// 作り直す: grid を優先し、切り詰めで空になった行だけ mainShadow で補う
+	// (flush.go の resweepAllRowsLocked 参照)。lastSent を空にしてから照合する
+	// ので、内容のある行はすべて snapshot に載る。mainShadow だけを見ると、
+	// alt 突入前に書かれて sweep 前だった行 (Touched も mainShadow も持たない)
+	// を取りこぼす。
 	var snapLines []LineUpdate
 	p.lastSent = map[int]string{}
 	if on {
@@ -484,14 +490,7 @@ func (p *Process) onAltScreenChange(on bool) {
 			}
 		}
 	} else {
-		snapLines = make([]LineUpdate, 0, len(p.mainShadow))
-		for y, runs := range p.mainShadow {
-			if len(runs) == 0 {
-				continue
-			}
-			snapLines = append(snapLines, LineUpdate{Y: y, Runs: runs})
-			p.lastSent[y] = runsKey(runs)
-		}
+		snapLines = p.resweepAllRowsLocked(true)
 	}
 
 	msg := WSMessage{
