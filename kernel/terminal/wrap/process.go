@@ -193,34 +193,6 @@ func (p *Process) Paste(text string) {
 	emu.Paste(text)
 }
 
-// Resize は cols と altRows をクライアントから受け取って反映する。
-// rows は常に VirtualRows() (main-screen 時) または altRows (alt-screen 時)。
-func (p *Process) Resize(cols, altRows int) error {
-	if cols <= 0 {
-		return nil
-	}
-	p.mu.Lock()
-	if altRows > 0 {
-		p.clientAltRows = altRows
-	}
-	ptyRows := uint16(VirtualRows())
-	if p.altScreen {
-		ar := p.clientAltRows
-		if ar <= 0 {
-			ar = DefaultAltRows
-		}
-		ptyRows = uint16(ar)
-	}
-	if p.ptmx != nil {
-		_ = pty.Setsize(p.ptmx, &pty.Winsize{Rows: ptyRows, Cols: uint16(cols)})
-	}
-	if p.emu != nil {
-		p.emu.Resize(cols, int(ptyRows))
-	}
-	p.mu.Unlock()
-	return nil
-}
-
 // Stop は SIGINT で穏便に終了させ、3 秒で応答なければ Kill する。
 func (p *Process) Stop() error {
 	p.mu.Lock()
@@ -486,17 +458,13 @@ func (p *Process) onAltScreenChange(on bool) {
 	}
 	w := p.emu.Width()
 
-	var newHeight, newPTYRows uint16
-	if on {
-		newHeight = uint16(ar)
-		newPTYRows = uint16(ar)
-	} else {
-		newHeight = uint16(VirtualRows())
-		newPTYRows = uint16(VirtualRows())
-	}
-	p.emu.Resize(w, int(newHeight))
+	// 切替後の実効高さは ptyRowsLocked() が唯一の定義 (p.altScreen は上で
+	// 更新済み)。Process.Resize の「寸法不変か」判定も同じ関数を見るので、
+	// 両者の高さの決め方がズレることがない (resize.go 参照)。
+	newHeight := p.ptyRowsLocked()
+	p.emu.Resize(w, newHeight)
 	if p.ptmx != nil {
-		_ = pty.Setsize(p.ptmx, &pty.Winsize{Rows: newPTYRows, Cols: uint16(w)})
+		_ = pty.Setsize(p.ptmx, &pty.Winsize{Rows: uint16(newHeight), Cols: uint16(w)})
 	}
 
 	mode := "main"
@@ -508,7 +476,7 @@ func (p *Process) onAltScreenChange(on bool) {
 	var snapLines []LineUpdate
 	p.lastSent = map[int]string{}
 	if on {
-		for y := 0; y < int(newHeight); y++ {
+		for y := 0; y < newHeight; y++ {
 			runs := p.snapshotLine(y)
 			p.lastSent[y] = runsKey(runs)
 			if len(runs) > 0 {
