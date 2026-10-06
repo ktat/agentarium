@@ -59,6 +59,13 @@ type Process struct {
 	// mainShadow: main-screen 中の行 runs を保持。alt 突入時に emulator を
 	// altRows に resize すると main grid が縮むため、alt 復帰時の client 復元用。
 	mainShadow map[int][]Run
+	// shadowOnly: mainShadow にだけ内容があり grid では空の行 (shadow 専用行)。
+	// alt 突入時の emu.Resize が main grid を altRows 行に切り詰めるため、alt
+	// 復帰後は altRows 行目以降の古い履歴が mainShadow にしか残らない。寸法変更
+	// resize の全行照合 (grid を正とする) がこれを「grid で消えた行」と見なして
+	// 履歴を消さないよう、alt 復帰時に記録する。子がその行を書けば (Touched)
+	// grid が正に戻るので外す (flush.go の sweepLocked / resweepAllRowsLocked 参照)。
+	shadowOnly map[int]bool
 
 	subMu sync.Mutex
 	subs  map[int]chan WSMessage
@@ -77,6 +84,7 @@ func NewProcess(workDir, command string, args ...string) *Process {
 		args:        args,
 		lastSent:    map[int]string{},
 		mainShadow:  map[int][]Run{},
+		shadowOnly:  map[int]bool{},
 		subs:        map[int]chan WSMessage{},
 		initialCols: DefaultCols,
 	}
@@ -191,34 +199,6 @@ func (p *Process) Paste(text string) {
 		return
 	}
 	emu.Paste(text)
-}
-
-// Resize は cols と altRows をクライアントから受け取って反映する。
-// rows は常に VirtualRows() (main-screen 時) または altRows (alt-screen 時)。
-func (p *Process) Resize(cols, altRows int) error {
-	if cols <= 0 {
-		return nil
-	}
-	p.mu.Lock()
-	if altRows > 0 {
-		p.clientAltRows = altRows
-	}
-	ptyRows := uint16(VirtualRows())
-	if p.altScreen {
-		ar := p.clientAltRows
-		if ar <= 0 {
-			ar = DefaultAltRows
-		}
-		ptyRows = uint16(ar)
-	}
-	if p.ptmx != nil {
-		_ = pty.Setsize(p.ptmx, &pty.Winsize{Rows: ptyRows, Cols: uint16(cols)})
-	}
-	if p.emu != nil {
-		p.emu.Resize(cols, int(ptyRows))
-	}
-	p.mu.Unlock()
-	return nil
 }
 
 // Stop は SIGINT で穏便に終了させ、3 秒で応答なければ Kill する。
@@ -486,17 +466,13 @@ func (p *Process) onAltScreenChange(on bool) {
 	}
 	w := p.emu.Width()
 
-	var newHeight, newPTYRows uint16
-	if on {
-		newHeight = uint16(ar)
-		newPTYRows = uint16(ar)
-	} else {
-		newHeight = uint16(VirtualRows())
-		newPTYRows = uint16(VirtualRows())
-	}
-	p.emu.Resize(w, int(newHeight))
+	// 切替後の実効高さは ptyRowsLocked() が唯一の定義 (p.altScreen は上で
+	// 更新済み)。Process.Resize の「寸法不変か」判定も同じ関数を見るので、
+	// 両者の高さの決め方がズレることがない (resize.go 参照)。
+	newHeight := p.ptyRowsLocked()
+	p.emu.Resize(w, newHeight)
 	if p.ptmx != nil {
-		_ = pty.Setsize(p.ptmx, &pty.Winsize{Rows: newPTYRows, Cols: uint16(w)})
+		_ = pty.Setsize(p.ptmx, &pty.Winsize{Rows: uint16(newHeight), Cols: uint16(w)})
 	}
 
 	mode := "main"
@@ -504,11 +480,17 @@ func (p *Process) onAltScreenChange(on bool) {
 		mode = "alt"
 	}
 
-	// 復帰時は mainShadow から grid を復元 → snapshot lines に詰める
+	// 切替後の grid 全行を snapshot lines に詰め直す。alt 突入時は alt grid が正。
+	// main 復帰時は emu.Resize が Touched を全破棄しているため全行照合で帳簿を
+	// 作り直す: grid を優先し、切り詰めで空になった行だけ mainShadow で補う
+	// (flush.go の resweepAllRowsLocked 参照)。lastSent を空にしてから照合する
+	// ので、内容のある行はすべて snapshot に載る。mainShadow だけを見ると、
+	// alt 突入前に書かれて sweep 前だった行 (Touched も mainShadow も持たない)
+	// を取りこぼす。
 	var snapLines []LineUpdate
 	p.lastSent = map[int]string{}
 	if on {
-		for y := 0; y < int(newHeight); y++ {
+		for y := 0; y < newHeight; y++ {
 			runs := p.snapshotLine(y)
 			p.lastSent[y] = runsKey(runs)
 			if len(runs) > 0 {
@@ -516,14 +498,7 @@ func (p *Process) onAltScreenChange(on bool) {
 			}
 		}
 	} else {
-		snapLines = make([]LineUpdate, 0, len(p.mainShadow))
-		for y, runs := range p.mainShadow {
-			if len(runs) == 0 {
-				continue
-			}
-			snapLines = append(snapLines, LineUpdate{Y: y, Runs: runs})
-			p.lastSent[y] = runsKey(runs)
-		}
+		snapLines = p.resweepAllRowsLocked(true)
 	}
 
 	msg := WSMessage{

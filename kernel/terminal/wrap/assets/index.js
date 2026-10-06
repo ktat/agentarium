@@ -1,6 +1,9 @@
 // wrap renderer: サーバ側 VT エミュレータが送る LineUpdate 差分を色/属性付きで描画する。
 // agentarium の 1-tab モデル: render(root, ctx) が DOM・WS・入力を結線し {close, ready} を返す。
 // 移植元の wrapper renderer を per-tab に適応移植したもの。
+// main 画面は可視域 ± バッファだけを DOM 化する仮想スクロール (vscroll.js 参照)。
+
+import { OVERSCAN_ROWS, selectionCopyText, selectionRowYs, syncRows, visibleRange } from './vscroll.js';
 
 // SGR 2 (Faint) を opacity でどれだけ薄くするか。xterm.js 互換の autosuggest
 // 視認性 (元の前景色は維持しつつ薄く表示) を目安に調整した値。
@@ -13,6 +16,42 @@ function ensureCSS() {
   link.rel = 'stylesheet';
   link.href = '/terminal/assets/wrap/wrap.css';
   document.head.appendChild(link);
+}
+
+// ResizeObserver 由来の resize 送信をまとめる待ち時間 (ms)。
+// PTY の寸法が変わると子 (TUI) は SIGWINCH のたびに画面を描き直す。レイアウトが
+// 落ち着くまでの途中経過の寸法をすべて送ると、描画途中で次の SIGWINCH が来ては
+// 中断され、幅の違う描画が積み上がる。サーバ側も寸法が変わるたびに全行照合
+// (数 ms〜数十 ms) を走らせるため、最終的な寸法だけを送る。
+const RESIZE_DEBOUNCE_MS = 150;
+
+// contentBox は要素の「実際に中身を置ける」寸法 (padding を除いた幅・高さ) を返す。
+// clientWidth / clientHeight は padding を含む。.twrap-viewport は padding: 4px 8px
+// なので、そのまま割ると左右 16px ぶん (cell 幅 8px 前後なら約 2 桁) 過大な cols を
+// 子へ渡し、子は入りきらない幅で描く。getComputedStyle が padding を返さない
+// 環境では 0 として扱う (従来と同じ値になるだけで壊れはしない)。
+function contentBox(el) {
+  if (!el) return { w: 0, h: 0 };
+  const cs = (typeof getComputedStyle === 'function') ? getComputedStyle(el) : null;
+  const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+  const px = cs ? num(cs.paddingLeft) + num(cs.paddingRight) : 0;
+  const py = cs ? num(cs.paddingTop) + num(cs.paddingBottom) : 0;
+  return { w: Math.max(0, (el.clientWidth || 0) - px), h: Math.max(0, (el.clientHeight || 0) - py) };
+}
+
+// debounce は連続する呼び出しを最後の 1 回にまとめる (トレーリングデバウンス)。
+// 戻り値の cancel() は保留中の呼び出しを捨てる (close 後に送らないため)。
+function debounce(delayMs, fn) {
+  let timer = null;
+  const call = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn(); }, delayMs);
+  };
+  call.cancel = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+  return call;
 }
 
 function wsUrl(id) {
@@ -32,6 +71,18 @@ export async function render(root, ctx) {
   viewportEl.tabIndex = 0;
   const gridEl = document.createElement('div');
   gridEl.className = 'twrap-grid';
+  // gridEl は「上 spacer / 描画範囲の行 span 群 (lineHost) / 下 spacer」の 3 部
+  // 構成。範囲外の行は spacer の高さだけで表し、doRender は lineHost の中身だけ
+  // を描画範囲に合わせて出し入れする。
+  const spacerTop = document.createElement('div');
+  spacerTop.className = 'twrap-spacer twrap-spacer-top';
+  const lineHost = document.createElement('div');
+  lineHost.className = 'twrap-line-host';
+  const spacerBottom = document.createElement('div');
+  spacerBottom.className = 'twrap-spacer twrap-spacer-bottom';
+  gridEl.appendChild(spacerTop);
+  gridEl.appendChild(lineHost);
+  gridEl.appendChild(spacerBottom);
   const cursorEl = document.createElement('div');
   cursorEl.className = 'twrap-cursor';
   const imeEl = document.createElement('textarea');
@@ -51,11 +102,21 @@ export async function render(root, ctx) {
 
   const entry = {
     ws: null, viewportEl, gridEl, cursorEl, imeEl,
+    spacerTop, lineHost, spacerBottom,
     grid: new Map(), gridMaxY: -1,
+    // 描画中の行 → span (syncRows 参照)。キーは main がエミュレータの行番号、alt
+    // が画面内の行番号なので、モードが変わったら作り直す (rowNodesMode)。
+    rowNodes: new Map(), rowNodesMode: null,
+    // 直近の描画の最終行 (-1 = 未描画)。positionIme が描画範囲外のカーソル行の
+    // 位置を計算で出してよいかの判定に使う。renderedFirst / renderedLast は描画
+    // 範囲 (選択の端点として範囲外に残した行は含まない)。
+    renderedMaxY: -1, renderedFirst: 0, renderedLast: -1,
     cursorX: 0, cursorY: 0, cursorHidden: false,
     mode: 'main', altRows: 40, cols: 80,
     fontMetric: null, userScrolled: false, pendingRender: 0,
     imePosScheduled: false,
+    // 最後に送った resize の寸法。同じ寸法の再送を省く (sendResize 参照)。
+    sentCols: null, sentAltRows: null,
   };
 
   function measureCell() {
@@ -74,7 +135,10 @@ export async function render(root, ctx) {
     heightProbe.style.visibility = 'hidden';
     heightProbe.textContent = 'M';
     entry.gridEl.appendChild(heightProbe);
-    const h = heightProbe.offsetHeight;
+    // 行高は小数で取る。offsetHeight は 15.6px を 16 に丸めるため、spacer の高さ
+    // (行数 × 行高) と実体行の積み上がりがずれ、描画範囲が動くたびに scrollHeight
+    // が揺れて末尾判定 (userScrolled) とスクロール位置が飛ぶ。
+    const h = heightProbe.getBoundingClientRect().height;
     entry.gridEl.removeChild(heightProbe);
     return { w: w || 8, h: h || 16 };
   }
@@ -87,21 +151,41 @@ export async function render(root, ctx) {
     // 20 桁に reflow し、タブ復帰時に一瞬その狭い表示が見えてから ResizeObserver 再発火
     // で通常幅へ戻る (幅が一瞬狭くなる bug)。非表示中は送らず、表示に戻ったときの
     // ResizeObserver 発火で実寸 resize させる。offsetParent は display:none 下で null。
-    if (entry.viewportEl.offsetParent === null) return;
+    // 非表示にしたら送信記録を捨てる。同じ端末を別ウィンドウでも開いていると、
+    // 非表示の間に向こうが PTY を別の寸法へ変えている可能性がある。記録を残すと
+    // 表示に戻ったとき自分の寸法が変わっていないため送らず、PTY が向こうの
+    // 寸法のまま取り残される (表示中のタブの寸法を勝たせる)。
+    if (entry.viewportEl.offsetParent === null) {
+      entry.sentCols = null;
+      entry.sentAltRows = null;
+      return;
+    }
     const m = measureCell();
+    // 行高が変わった (非表示中に既定値で測っていた、フォント読み込み後など) なら
+    // spacer の高さを測り直した行高で描き直す。
+    const prevH = entry.fontMetric ? entry.fontMetric.h : null;
     entry.fontMetric = m;
+    if (prevH !== m.h) scheduleRender();
+    // padding を除いた「文字を置ける寸法」から cols / altRows を出す (contentBox 参照)。
     // 表示中でもレイアウト途中で一時的に極小になり得るケースは root を fallback。
-    let vpW = entry.viewportEl.clientWidth;
-    let vpH = entry.viewportEl.clientHeight;
+    const box = contentBox(entry.viewportEl);
+    let vpW = box.w;
+    let vpH = box.h;
     if (vpW < 50 || vpH < 50) {
-      vpW = root.clientWidth || vpW;
-      vpH = root.clientHeight || vpH;
+      const rbox = contentBox(root);
+      vpW = rbox.w || vpW;
+      vpH = rbox.h || vpH;
     }
     // 実寸がまだ取れない (レイアウト前) なら無効な極狭 resize を送らずスキップ。
     if (vpW < 20 || vpH < 20) return;
     const newCols = Math.max(20, Math.floor(vpW / m.w));
     const newAltRows = Math.max(10, Math.floor(vpH / m.h));
     entry.altRows = newAltRows;
+    // 前回送ったのと同じ寸法なら送らない。サーバは寸法不変の resize を捨てるが、
+    // 送らなければ WS 往復も省ける。再接続時は onopen が記録を捨てて必ず送り直す。
+    if (entry.sentCols === newCols && entry.sentAltRows === newAltRows) return;
+    entry.sentCols = newCols;
+    entry.sentAltRows = newAltRows;
     entry.ws.send(JSON.stringify({ type: 'resize', cols: newCols, altRows: newAltRows }));
     // fontMetric 更新後に ime 位置を追従させる (リサイズ直後の render 待ちの間
     // に composition が始まっても候補ウィンドウ位置がずれないように)。
@@ -198,7 +282,11 @@ export async function render(root, ctx) {
     entry.viewportEl.addEventListener('mouseup', (e) => {
       if (e.target.tagName === 'BUTTON') return;
       const t = e.target;
-      if (!(t === entry.viewportEl || t.classList.contains('twrap-grid') || t.classList.contains('twrap-line') || t.tagName === 'SPAN')) return;
+      // spacer / lineHost も grid の一部として扱う (描画が追いつく前の空白を
+      // クリックしても ime に focus が戻るように)。
+      const inGrid = t.classList.contains('twrap-grid') || t.classList.contains('twrap-line') ||
+        t.classList.contains('twrap-line-host') || t.classList.contains('twrap-spacer');
+      if (!(t === entry.viewportEl || inGrid || t.tagName === 'SPAN')) return;
       const sel = globalThis.getSelection();
       if (sel && sel.toString().length > 0) return;
       // preventScroll: true を付けないと、ime (left:-9999px, top:0) に focus
@@ -303,7 +391,9 @@ export async function render(root, ctx) {
       el.style.display = 'none';
       return;
     }
-    const rowEl = entry.gridEl.children[y];
+    // カーソル行が描画範囲外 (手動スクロール中など) なら DOM に無い。画面外なので
+    // 出さない。
+    const rowEl = inRendered(y) ? entry.rowNodes.get(y) : null;
     if (!rowEl) { el.style.display = 'none'; return; }
     if (!entry.fontMetric) entry.fontMetric = measureCell();
     const m = entry.fontMetric;
@@ -314,24 +404,32 @@ export async function render(root, ctx) {
     el.style.height = rowEl.offsetHeight + 'px';
   }
 
+  // inRendered は y が描画範囲内かを返す。選択の端点として範囲外に残した行は
+  // 本来の位置に無い (範囲の直前 / 直後に並べている) ので、位置合わせに使わない。
+  function inRendered(y) {
+    return y >= entry.renderedFirst && y <= entry.renderedLast;
+  }
+
+  // onCopy は選択がこの端末の行の中にあるとき、コピーする文字列を grid から
+  // 組み立てる (selectionCopyText 参照)。端点が端末の外ならブラウザに任せる。
+  function onCopy(e) {
+    const text = e.clipboardData ? selectionCopyText(entry.lineHost, entry.grid, globalThis.getSelection()) : null;
+    if (text === null) return;
+    e.clipboardData.setData('text/plain', text);
+    e.preventDefault();
+  }
+
+  // scrollToCursor は grid の最終行 (= 実際に何かが書かれた最も下の行、cursor が
+  // 近ければ cursor 行) を viewport の bottom にスナップする。cursor より下に書かれ
+  // た行 (claude TUI の選択肢メニュー / プレビュー等) を画面外に追いやらないため、
+  // cursor 行ではなく末尾を基準にする。spacer 方式では viewport の scrollHeight が
+  // 0..maxY の総高さと一致するので scrollHeight - clientHeight で確定できる。既に
+  // 目的地にいるときは代入しない (scroll イベント → 再描画 → 代入 → scroll イベント
+  // の再入を断つ)。
   function scrollToCursor() {
     const vp = entry.viewportEl;
-    const gridEl = entry.gridEl;
-    // grid の最終行 (= 実際に何かが書かれた最も下の行) を viewport の bottom に
-    // スナップする。下方向に余計なバッファは無く、cursor より下に書かれた行
-    // (claude TUI の選択肢メニュー / プレビュー等) を画面外に追いやらないため、
-    // cursor 行ではなく lastElementChild を基準にする。
-    const lastEl = gridEl.lastElementChild;
-    if (!lastEl) { vp.scrollTop = vp.scrollHeight; return; }
-    try {
-      lastEl.scrollIntoView({ block: 'end', inline: 'nearest' });
-    } catch {
-      // viewport の padding-bottom 等が乗ると scrollHeight ベースだと
-      // 余白分だけ下に寄りすぎる。try と意味的に同等になるよう
-      // 「lastEl の bottom を viewport の bottom に合わせる」計算で確定する。
-      const want = lastEl.offsetTop + lastEl.offsetHeight - vp.clientHeight;
-      vp.scrollTop = Math.max(0, want);
-    }
+    const want = Math.max(0, vp.scrollHeight - vp.clientHeight);
+    if (Math.abs(vp.scrollTop - want) >= 1) vp.scrollTop = want;
   }
 
   // positionIme は ime textarea をカーソルの画面上の見かけ位置に重ねる。
@@ -348,17 +446,22 @@ export async function render(root, ctx) {
     const vp = entry.viewportEl;
     if (!entry.fontMetric) entry.fontMetric = measureCell();
     const m = entry.fontMetric;
-    const rowEl = entry.gridEl.children[entry.cursorY];
-    // カーソル行がまだ DOM に構築されていない瞬間 (render 前や cursorY が
-    // 描画済み行数を超えている初期化タイミング) に呼ばれると、位置を 0,0 に
-    // 倒して左上へ flash する。その場合は更新せず直前の正しい位置を維持する。
-    if (!rowEl) return;
+    const y = entry.cursorY;
+    // まだ一度も描画していない、または cursorY が描画した最終行を超えている
+    // 初期化タイミングに呼ばれると、位置を 0,0 に倒して左上へ flash する。その
+    // 場合は更新せず直前の正しい位置を維持する。
+    if (entry.renderedMaxY < 0 || y < 0 || y > entry.renderedMaxY) return;
+    const rowEl = inRendered(y) ? entry.rowNodes.get(y) : null;
     const composing = el.classList.contains('composing');
     // 「行頭 offsetLeft + 列 × セル幅」で重ねる (同梱の完全等幅フォント前提で
     // 列モデルが実描画に一致する)。旧・実描画右端クランプは末尾スペースで張り付く
-    // 副作用があり廃止した (renderCursor の NOTE 参照)。
-    let left = rowEl.offsetLeft + entry.cursorX * m.w;
-    let top = rowEl.offsetTop - vp.scrollTop;
+    // 副作用があり廃止した (renderCursor の NOTE 参照)。カーソル行が仮想スクロール
+    // で DOM 化されていない (描画範囲外) ときは、上 spacer の位置 (= 行 0 の上端)
+    // + 行番号 × 行高で同じ位置を出す (全行が同じ高さの前提は visibleRange と同じ)。
+    const rowLeft = rowEl ? rowEl.offsetLeft : entry.spacerTop.offsetLeft;
+    const rowTop = rowEl ? rowEl.offsetTop : entry.spacerTop.offsetTop + y * m.h;
+    let left = rowLeft + entry.cursorX * m.w;
+    let top = rowTop - vp.scrollTop;
     // カーソルが scroll で viewport 外にある場合も候補ウィンドウが viewport
     // 近傍に出るよう範囲内にクランプする。
     left = Math.max(0, Math.min(left, vp.clientWidth - m.w));
@@ -386,44 +489,68 @@ export async function render(root, ctx) {
         requestAnimationFrame(() => { entry.imePosScheduled = false; positionIme(); });
       }
       if (entry.mode === 'alt') return;
-      // userScrolled の判定基準は scrollToCursor と揃えて lastElementChild。
-      // ユーザーが grid の bottom より上にスクロールすると userScrolled=true になり、
-      // 以降の自動 scrollToCursor がガードされて過去出力を閲覧できる。
-      const lastEl = entry.gridEl.lastElementChild;
-      if (!lastEl) return;
-      const lastBottom = lastEl.offsetTop + lastEl.offsetHeight;
-      const viewportBottom = entry.viewportEl.scrollTop + entry.viewportEl.clientHeight;
-      entry.userScrolled = (viewportBottom < lastBottom - 4);
+      // userScrolled の判定基準は scrollToCursor と揃える (spacer 方式なので
+      // viewport の scrollHeight が末尾までの総高さそのもの)。ユーザーが bottom
+      // より上にスクロールすると userScrolled=true になり、以降の自動
+      // scrollToCursor がガードされて過去出力を閲覧できる。
+      const vp = entry.viewportEl;
+      entry.userScrolled = (vp.scrollTop + vp.clientHeight < vp.scrollHeight - 4);
+      // 仮想スクロールでは描画範囲外の行が DOM に無いので、scroll 自体を再描画の
+      // きっかけにしないと spacer の空白が見えたままになる。scheduleRender は rAF
+      // で 1 フレーム 1 回にまとまるので過剰にはならない。
+      scheduleRender();
     });
   }
 
   function doRender() {
-    // maxY は「実際に書かれた行の最大 (gridMaxY)」 + cursor が近ければそれも含める。
-    // gridMaxY は init/update 受信時に O(変更行数) で増分更新しているので、ここで
-    // Math.max(...grid.keys()) を毎フレーム展開しなくて済む (ストリーミング負荷低減)。
-    const usedMax = entry.gridMaxY >= 0 ? entry.gridMaxY : 0;
-    const cursorNearGrid = entry.cursorY <= usedMax + 100;
-    const mainMax = cursorNearGrid ? Math.max(usedMax, entry.cursorY) : usedMax;
-    const maxY = (entry.mode === 'alt')
-      ? (entry.altRows - 1)
-      : Math.max(mainMax, 0);
-    const gridEl = entry.gridEl;
-    while (gridEl.children.length <= maxY) {
-      const node = document.createElement('span');
-      node.className = 'twrap-line';
-      gridEl.appendChild(node);
-    }
-    while (gridEl.children.length > maxY + 1) {
-      gridEl.removeChild(gridEl.lastChild);
-    }
-    for (let y = 0; y <= maxY; y++) {
-      const runs = entry.grid.get(y) || [];
-      const node = gridEl.children[y];
-      renderRuns(node, runs);
-      node.classList.toggle('twrap-cursor-row', y === entry.cursorY);
-    }
+    if (!entry.fontMetric) entry.fontMetric = measureCell();
+    const lineH = entry.fontMetric.h;
+    const vp = entry.viewportEl;
+    let maxY, range;
     if (entry.mode === 'alt') {
-      entry.viewportEl.scrollTop = 0;
+      // alt は altRows 行の固定画面なので毎回全行を描く (範囲計算は不要)。
+      maxY = entry.altRows - 1;
+      range = { first: 0, last: maxY };
+    } else {
+      // maxY は「実際に書かれた行の最大 (gridMaxY)」 + cursor が近ければそれも含める。
+      // gridMaxY は init/update 受信時に O(変更行数) で増分更新しているので、ここで
+      // Math.max(...grid.keys()) を毎フレーム展開しなくて済む (ストリーミング負荷低減)。
+      const usedMax = entry.gridMaxY >= 0 ? entry.gridMaxY : 0;
+      const cursorNearGrid = entry.cursorY <= usedMax + 100;
+      const mainMax = cursorNearGrid ? Math.max(usedMax, entry.cursorY) : usedMax;
+      maxY = Math.max(mainMax, 0);
+      // 描画範囲は可視域 ± バッファだけ (visibleRange)。DOM の行数は総行数ではなく
+      // viewport の高さで決まる。末尾追従中はこのあと scrollToCursor が末尾へ
+      // スナップするので、現在の scrollTop ではなく移動先で範囲を決める (出力が
+      // 一度に大量に増えたとき、移動先が spacer の空白にならないように)。
+      // 手動スクロール中でも、grid が縮んだ直後はブラウザがこのあと scrollTop を
+      // 末尾へ詰めるので、詰めた先で範囲を決める (縮む前の位置で決めると、詰めた
+      // 先が spacer の空白になる)。padding は上下の余白ぶん。
+      const padV = vp.clientHeight - contentBox(vp).h;
+      const maxTop = Math.max(0, (maxY + 1) * lineH + padV - vp.clientHeight);
+      const top = entry.userScrolled ? Math.min(vp.scrollTop, maxTop) : maxTop;
+      range = visibleRange(top, vp.clientHeight, lineH, 0, maxY, OVERSCAN_ROWS);
+    }
+    if (entry.rowNodesMode !== entry.mode) {
+      entry.lineHost.textContent = '';
+      entry.rowNodes.clear();
+      entry.rowNodesMode = entry.mode;
+    }
+    // 選択の端点の行は範囲外でも残す。残した行は範囲の直前 / 直後に並ぶので、
+    // その行数ぶん spacer を縮めて全体の高さと可視行の位置を保つ。
+    const sel = globalThis.getSelection ? globalThis.getSelection() : null;
+    const pinned = selectionRowYs(entry.lineHost, sel).filter((y) => y <= maxY);
+    const kept = syncRows(entry.lineHost, entry.rowNodes, range.first, range.last, (node, y) => {
+      renderRuns(node, entry.grid.get(y) || []);
+      node.classList.toggle('twrap-cursor-row', y === entry.cursorY);
+    }, pinned);
+    entry.spacerTop.style.height = (Math.max(0, range.first - kept.above) * lineH) + 'px';
+    entry.spacerBottom.style.height = (Math.max(0, maxY - range.last - kept.below) * lineH) + 'px';
+    entry.renderedMaxY = maxY;
+    entry.renderedFirst = range.first;
+    entry.renderedLast = range.last;
+    if (entry.mode === 'alt') {
+      if (vp.scrollTop !== 0) vp.scrollTop = 0;
     } else if (!entry.userScrolled) {
       scrollToCursor();
     }
@@ -477,7 +604,15 @@ export async function render(root, ctx) {
 
   attachInputHandlers();
   setupScrollHandler();
-  const ro = new ResizeObserver(() => sendResize());
+  document.addEventListener('copy', onCopy);
+  // ResizeObserver はレイアウトが落ち着くまでの途中経過の寸法も逐次通知するので、
+  // デバウンスして最終的な寸法だけを送る (RESIZE_DEBOUNCE_MS 参照)。非表示から
+  // 表示に戻ったときも root の寸法が変わるのでここが発火し、実寸が 1 回だけ届く。
+  const debouncedResize = debounce(RESIZE_DEBOUNCE_MS, sendResize);
+  // 描画はデバウンスせずに次フレームで描き直す。viewport の高さが変わると描画
+  // 範囲も変わり、非表示 (display:none) から戻ったときはスクロール位置が失われて
+  // いるため、描き直さないと spacer の空白だけが見える。
+  const ro = new ResizeObserver(() => { scheduleRender(); debouncedResize(); });
   ro.observe(root);
 
   let resolveReady;
@@ -510,6 +645,11 @@ export async function render(root, ctx) {
       banner.style.display = 'none';
       // 再接続後はサーバが init snapshot を送り applyMessage('init') が grid を
       // クリア再構築するため、ここでの明示クリアは不要。
+      // 接続直後の resize はデバウンスせず即送る (遅らせると子が既定の桁数で
+      // 描き始める)。サーバ再起動で PTY が作り直されている場合に備え、前回送信の
+      // 記録を捨てて必ず送り直す。
+      entry.sentCols = null;
+      entry.sentAltRows = null;
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => sendResize());
       else sendResize();
       resolveReady && resolveReady();
@@ -528,6 +668,8 @@ export async function render(root, ctx) {
       if (entry.pendingRender) { cancelAnimationFrame(entry.pendingRender); entry.pendingRender = 0; }
       try { entry.ws && entry.ws.close(); } catch (_) { /* 無視 */ }
       try { ro.disconnect(); } catch (_) { /* 無視 */ }
+      debouncedResize.cancel();
+      document.removeEventListener('copy', onCopy);
     },
     ready,
   };

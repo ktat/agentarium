@@ -27,6 +27,12 @@
   scrollbar-width: thin;
   scrollbar-color: #555 #0c0c0c;
   scrollbar-gutter: stable;
+  /* 仮想スクロール (vscroll.js) は scrollTop から描画範囲を決め、その結果で spacer
+     の高さを変える。scroll anchoring が有効だと「内容を視覚的に固定する」ために
+     ブラウザが scrollTop を書き戻し、scrollTop → 描画範囲 → spacer 高さ →
+     scrollTop の正のフィードバックで端まで走り続ける。scrollTop の権威を
+     renderer 側に固定する。 */
+  overflow-anchor: none;
   background: #1e1e1e;
   color: #d4d4d4;
   padding: 4px 8px;
@@ -48,6 +54,10 @@
   color: #d4d4d4;
 }
 .twrap-line { display: block; min-height: 1.2em; }
+/* 仮想スクロールの詰め物と、描画範囲の行を入れる箱。spacer は描画範囲外の行
+   ぶんの高さだけを持ち、行 span は作らない (index.js の doRender 参照)。 */
+.twrap-spacer { display: block; width: 1px; }
+.twrap-line-host { display: block; }
 .twrap-link {
   color: inherit;
   text-decoration: none;
