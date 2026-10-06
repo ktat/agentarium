@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/ktat/agentarium/kernel/events"
 	"github.com/ktat/agentarium/kernel/plugin"
 )
 
@@ -489,5 +491,29 @@ func TestAPIPlugins_OrderOverride(t *testing.T) {
 	}
 	if got[1]["order"].(float64) != 25 {
 		t.Errorf("chat order: want 25, got %v", got[1]["order"])
+	}
+}
+
+func TestWithEvents_GoPublishReachesSubscriber(t *testing.T) {
+	hub := events.New()
+	ts := httptest.NewServer(New(plugin.NewRegistry(), newTestShellFS(), WithEvents(hub)))
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/events?topic=x", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	// ヘッダが返った時点で購読は登録済み（HandleSubscribe は登録後に Flush する）
+	hub.Publish("y", []byte(`{"skip":1}`))
+	hub.Publish("x", []byte(`{"a":1}`))
+	line, err := bufio.NewReader(resp.Body).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if line != "data: {\"a\":1}\n" {
+		t.Fatalf("line=%q", line)
 	}
 }

@@ -1,6 +1,7 @@
 package agentarium
 
 import (
+	"bufio"
 	"context"
 	"io/fs"
 	"net/http"
@@ -289,5 +290,34 @@ func TestSetTabOrder_DelegatesToRegistry(t *testing.T) {
 	app := New().SetTabOrder("chat", 25)
 	if got := app.Registry().EffectiveOrder("chat"); got != 25 {
 		t.Errorf("EffectiveOrder(chat) = %d, want 25", got)
+	}
+}
+
+func TestEvents_SharedWithHandler(t *testing.T) {
+	app := New()
+	if app.Events() == nil {
+		t.Fatal("Events() is nil")
+	}
+	h, err := app.Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/events?topic=t", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	app.Events().Publish("t", []byte(`{"ok":1}`))
+	line, err := bufio.NewReader(resp.Body).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if line != "data: {\"ok\":1}\n" {
+		t.Fatalf("line=%q", line)
 	}
 }

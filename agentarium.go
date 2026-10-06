@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ktat/agentarium/kernel/events"
 	"github.com/ktat/agentarium/kernel/pet"
 	"github.com/ktat/agentarium/kernel/plugin"
 	"github.com/ktat/agentarium/kernel/secrets"
@@ -30,14 +31,20 @@ type App struct {
 	pet      *pet.Supervisor
 	title    string
 	favicon  string
+	events   *events.Hub
 	mu       sync.Mutex
 	srv      *http.Server
 }
 
 // New は空の App を返す。同梱プラグインは登録しない（消費者が opt-in する）。
 func New() *App {
-	return &App{reg: plugin.NewRegistry()}
+	return &App{reg: plugin.NewRegistry(), events: events.New()}
 }
+
+// Events は汎用イベントバスの Hub を返す。Handler/Run が組むサーバーの
+// /events/publish・/events と同じ Hub なので、プラグインは Go から
+// Events().Publish(topic, data) で購読者（シェルの agentarium.subscribe）へ配信できる。
+func (a *App) Events() *events.Hub { return a.events }
 
 // Register は 1 つ以上のプラグインを登録する。最初のエラーで中断して返す。
 func (a *App) Register(plugins ...plugin.Plugin) error {
@@ -114,7 +121,7 @@ func (a *App) WithPet(p *pet.Supervisor) *App {
 // terminal Service が WithTerminal で渡されていれば /terminal/* も組み込む。
 // error は将来の manifest ローダ等の失敗に備えた前方互換のため（現状は常に nil）。
 func (a *App) Handler() (http.Handler, error) {
-	var opts []server.Option
+	opts := []server.Option{server.WithEvents(a.events)}
 	if a.terminal != nil {
 		opts = append(opts, server.WithTerminal(a.terminal))
 	}
